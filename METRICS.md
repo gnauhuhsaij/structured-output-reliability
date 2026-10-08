@@ -418,19 +418,27 @@ Additional diagnostics include:
 
 ## 12. Baseline comparisons and gates
 
-Baseline and candidate runs must share the metric-contract major version and
-the same generated case-set hash. Reports may show unmatched conditions, but a
-regression gate compares only exactly matched condition IDs.
+Baseline and candidate runs must share the metric-contract major version. A
+regression gate compares only conditions with the same `comparison_key` from the
+configuration contract; that key includes the condition's exact case-set hash.
+Exact `condition_id` values include service identity and therefore are not
+expected to match when comparing two serving configurations. Reports may show
+unmatched conditions, but gates cannot use them.
 
 Gates declare whether they use the point estimate or a conservative confidence
 bound:
 
 - minimum quality gate: conservative mode evaluates the lower bound;
 - maximum latency gate: conservative mode evaluates the upper bound;
-- maximum allowed drop from baseline: compare `candidate - baseline`, with a
-  negative value representing degradation for quality metrics;
-- maximum allowed increase from baseline: compare candidate relative to
-  baseline for latency metrics.
+- maximum fractional drop from baseline:
+  `(baseline - candidate) / baseline <= configured value`;
+- maximum increase ratio from baseline:
+  `candidate / baseline <= configured value`.
+
+A zero baseline makes either relative comparison unavailable. A gate is
+evaluated for every measured candidate condition and passes only if all
+conditions pass. An unavailable metric, incomplete run, or missing or duplicate
+baseline match cannot pass a gate.
 
 No default threshold is inferred. Every threshold and gate policy must be
 present in the resolved configuration and reproduced in the report.

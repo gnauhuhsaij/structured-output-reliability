@@ -1,0 +1,83 @@
+schema_version: "1.0.0"
+name: local-vllm-structured-output-smoke
+description: Compare prompt-only and constrained JSON Schema output under load.
+
+endpoint:
+  base_url: http://127.0.0.1:8000/v1
+  path: /chat/completions
+  model: Qwen/Qwen3-8B
+  api_key_env: OPENAI_API_KEY
+  timeout_seconds: 60
+  quantization: awq
+
+tokenizer:
+  name: Qwen/Qwen3-8B
+  trust_remote_code: false
+
+cases:
+  count: 20
+  length_unit: tokens
+  generator_version: "1.0.0"
+  families:
+    - flat_object
+    - nested_object
+    - array_object
+    - mixed_types
+  comparison:
+    numeric: exact
+    absolute_tolerance: 0
+    relative_tolerance: 0
+    arrays: ordered
+
+run:
+  seed: 20261004
+  repetitions: 3
+  warmup_requests_per_condition: 2
+  stream: true
+
+structured_modes:
+  - id: prompt_only
+    type: prompt_only
+  - id: json_schema
+    type: response_format
+    strict: true
+
+matrix:
+  concurrency:
+    - 1
+    - 8
+  prompt_lengths:
+    - 256
+    - 2048
+  output_shapes:
+    - target_length: 64
+      max_completion_tokens: 96
+  temperatures:
+    - 0
+    - 0.7
+  request_seeds:
+    - 42
+  structured_modes:
+    - prompt_only
+    - json_schema
+
+slos:
+  max_e2e_latency_ms: 5000
+  max_ttft_ms: 1000
+  max_tpot_ms: 100
+
+gates:
+  - metric: schema_valid_rate
+    kind: minimum
+    value: 0.95
+    estimate: lower_ci
+  - metric: p95_e2e_latency_ms
+    kind: maximum
+    value: 5000
+    estimate: upper_ci
+
+output:
+  root: ./runs
+  include_raw_response: true
+  include_stream_events: true
+  flush_every: 1

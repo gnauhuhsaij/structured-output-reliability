@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gnauhuhsaij/structured-output-reliability/schemas/condition.schema.json",
+  "title": "Resolved experiment condition record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "condition_schema_version",
+    "configuration_contract_version",
+    "metric_contract_version",
+    "case_schema_version",
+    "condition_id",
+    "comparison_key",
+    "endpoint",
+    "tokenizer",
+    "concurrency",
+    "prompt_length",
+    "output_shape",
+    "temperature",
+    "request_seed",
+    "structured_mode",
+    "stream",
+    "repetitions",
+    "warmup_requests",
+    "execution_order_seed",
+    "case_set_sha256"
+  ],
+  "properties": {
+    "condition_schema_version": {
+      "const": "1.0.0"
+    },
+    "configuration_contract_version": {
+      "const": "1.0.0"
+    },
+    "metric_contract_version": {
+      "const": "1.0.0"
+    },
+    "case_schema_version": {
+      "const": "1.0.0"
+    },
+    "condition_id": {
+      "type": "string",
+      "pattern": "^cond_[0-9a-f]{16}$"
+    },
+    "comparison_key": {
+      "type": "string",
+      "pattern": "^cmp_[0-9a-f]{16}$"
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_url",
+        "path",
+        "model",
+        "api_key_env",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "api_key_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "quantization": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tokenizer": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "trust_remote_code"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "trust_remote_code": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "concurrency": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "prompt_length": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "unit",
+        "exact"
+      ],
+      "properties": {
+        "target": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unit": {
+          "enum": [
+            "tokens",
+            "characters"
+          ]
+        },
+        "exact": {
+          "type": "boolean"
+        }
+      }
+    },
+    "output_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_length",
+        "target_unit",
+        "max_completion_tokens"
+      ],
+      "properties": {
+        "target_length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_unit": {
+          "enum": [
+            "tokens",
+            "characters"
+          ]
+        },
+        "max_completion_tokens": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0
+    },
+    "request_seed": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "structured_mode": {
+      "$ref": "#/$defs/resolvedStructuredMode"
+    },
+    "stream": {
+      "type": "boolean"
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "warmup_requests": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "execution_order_seed": {
+      "type": "integer"
+    },
+    "slos": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "max_e2e_latency_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_ttft_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_tpot_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "case_set_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "resolvedStructuredMode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "portable"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "prompt_only"
+            },
+            "portable": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "portable",
+            "strict"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "response_format"
+            },
+            "portable": {
+              "const": true
+            },
+            "strict": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "portable",
+            "body",
+            "schema_json_pointer"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "extra_body"
+            },
+            "portable": {
+              "const": false
+            },
+            "body": {
+              "type": "object"
+            },
+            "schema_json_pointer": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~0|~1)*)+$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

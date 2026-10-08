@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gnauhuhsaij/structured-output-reliability/schemas/experiment.schema.json",
+  "title": "Structured-output reliability experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "name",
+    "endpoint",
+    "cases",
+    "run",
+    "structured_modes",
+    "matrix",
+    "output"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "description": {
+      "type": "string"
+    },
+    "endpoint": {
+      "$ref": "#/$defs/endpoint"
+    },
+    "tokenizer": {
+      "$ref": "#/$defs/tokenizer"
+    },
+    "cases": {
+      "$ref": "#/$defs/cases"
+    },
+    "run": {
+      "$ref": "#/$defs/run"
+    },
+    "structured_modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/structuredMode"
+      }
+    },
+    "matrix": {
+      "$ref": "#/$defs/matrix"
+    },
+    "slos": {
+      "$ref": "#/$defs/slos"
+    },
+    "baseline_run": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gate"
+      },
+      "default": []
+    },
+    "output": {
+      "$ref": "#/$defs/output"
+    }
+  },
+  "$defs": {
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_url",
+        "model",
+        "api_key_env"
+      ],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "default": "/chat/completions"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "api_key_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 60
+        },
+        "quantization": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tokenizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trust_remote_code": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "cases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "length_unit",
+        "families"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "length_unit": {
+          "enum": [
+            "tokens",
+            "characters"
+          ]
+        },
+        "generator_version": {
+          "type": "string",
+          "minLength": 1,
+          "default": "1.0.0"
+        },
+        "families": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "flat_object",
+              "nested_object",
+              "array_object",
+              "mixed_types"
+            ]
+          }
+        },
+        "comparison": {
+          "$ref": "#/$defs/comparisonPolicy"
+        }
+      }
+    },
+    "comparisonPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numeric": {
+          "enum": [
+            "exact",
+            "absolute_tolerance",
+            "relative_tolerance"
+          ],
+          "default": "exact"
+        },
+        "absolute_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "relative_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "arrays": {
+          "const": "ordered",
+          "default": "ordered"
+        }
+      },
+      "default": {}
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seed",
+        "repetitions"
+      ],
+      "properties": {
+        "seed": {
+          "type": "integer"
+        },
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warmup_requests_per_condition": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "stream": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "structuredMode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "prompt_only"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "response_format"
+            },
+            "strict": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "body",
+            "schema_json_pointer"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "extra_body"
+            },
+            "body": {
+              "type": "object"
+            },
+            "schema_json_pointer": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~0|~1)*)+$"
+            }
+          }
+        }
+      ]
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concurrency",
+        "prompt_lengths",
+        "output_shapes",
+        "temperatures",
+        "request_seeds",
+        "structured_modes"
+      ],
+      "properties": {
+        "concurrency": {
+          "$ref": "#/$defs/positiveIntegerAxis"
+        },
+        "prompt_lengths": {
+          "$ref": "#/$defs/positiveIntegerAxis"
+        },
+        "output_shapes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_length",
+              "max_completion_tokens"
+            ],
+            "properties": {
+              "target_length": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_completion_tokens": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "temperatures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "request_seeds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "structured_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      }
+    },
+    "positiveIntegerAxis": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "slos": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "max_e2e_latency_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_ttft_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_tpot_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "metric": {
+          "enum": [
+            "request_success_rate",
+            "json_parse_rate",
+            "schema_valid_rate",
+            "exact_correct_rate",
+            "micro_field_accuracy",
+            "macro_field_accuracy",
+            "repeat_consistency_rate",
+            "median_e2e_latency_ms",
+            "p95_e2e_latency_ms",
+            "median_ttft_ms",
+            "p95_ttft_ms",
+            "median_tpot_ms",
+            "p95_tpot_ms",
+            "attempt_throughput_rps",
+            "request_throughput_rps",
+            "output_token_throughput_tps",
+            "quality_goodput_rps"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "minimum",
+            "maximum",
+            "max_drop",
+            "max_increase_ratio"
+          ]
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimate": {
+          "enum": [
+            "point",
+            "lower_ci",
+            "upper_ci"
+          ],
+          "default": "point"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "include_raw_response": {
+          "type": "boolean",
+          "default": true
+        },
+        "include_stream_events": {
+          "type": "boolean",
+          "default": true
+        },
+        "flush_every": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      }
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    }
+  }
+}

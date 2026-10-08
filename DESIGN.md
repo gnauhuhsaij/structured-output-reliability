@@ -83,12 +83,16 @@ Each run produces:
 
 - resolved configuration and run manifest;
 - generated cases as JSONL;
+- fully expanded conditions as JSONL;
 - complete per-attempt responses as JSONL, including failures;
 - aggregate JSON and CSV;
 - a Markdown report.
 
 Saved artifacts must be sufficient to recompute scores and reports without
 calling the model again. Secrets must never be persisted.
+
+The YAML input, generated records, and stable identifier rules are specified in
+[`CONFIG.md`](CONFIG.md). Their machine-readable contracts live in `schemas/`.
 
 ## Compatibility boundary
 
