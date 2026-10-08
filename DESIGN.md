@@ -182,6 +182,10 @@ The design keeps four concerns separate:
 This allows the scorer or workload to be contributed to vLLM without requiring
 maintainers to adopt an unrelated evaluation framework.
 
+The Python distribution is named `structured-output-reliability`, its import
+package is `structured_output_reliability`, and its command-line entry point is
+`sor`.
+
 The preferred path is:
 
 1. audit vLLM's structured-output benchmark and `perf-eval`;
@@ -214,7 +218,6 @@ v0.1 is complete only when:
 
 These decisions do not block the design and must not expand v0.1:
 
-- final package and executable name;
 - Responses API and Completions API support;
 - open-loop Poisson traffic and trace replay;
 - server-side telemetry;

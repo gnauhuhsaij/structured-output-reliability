@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.32.4,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "structured-output-reliability"
+version = "0.1.0"
+description = "Reproducible structured-output reliability testing under load"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "gnauhuhsaij" },
+]
+dependencies = [
+  "jsonschema[format-nongpl]>=4.26,<5",
+  "PyYAML>=6.0.3,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.1,<10",
+]
+
+[project.scripts]
+sor = "structured_output_reliability.cli:main"
+
+[project.urls]
+Repository = "https://github.com/gnauhuhsaij/structured-output-reliability"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/schemas",
+  "/examples",
+  "/tests",
+  "/README.md",
+  "/DESIGN.md",
+  "/CONFIG.md",
+  "/METRICS.md",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/structured_output_reliability"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"schemas" = "structured_output_reliability/schemas"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
