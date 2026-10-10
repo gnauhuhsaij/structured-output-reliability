@@ -33,6 +33,7 @@ from structured_output_reliability.generator import (
     generate_cases,
     write_cases_jsonl,
 )
+from structured_output_reliability.metrics import summarize_run
 from structured_output_reliability.scorer import score_response
 
 CONFIGURATION_CONTRACT_VERSION = "1.0.0"
@@ -200,6 +201,7 @@ def run_experiment(config_path: str | Path) -> RunResult:
             }
         )
         _atomic_write_json(run_directory / "manifest.json", manifest)
+        summarize_run(run_directory)
     except BaseException:
         manifest.update(
             {

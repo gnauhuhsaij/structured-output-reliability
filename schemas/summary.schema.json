@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gnauhuhsaij/structured-output-reliability/schemas/summary.schema.json",
+  "title": "Aggregated structured-output reliability run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary_schema_version",
+    "metric_contract_version",
+    "run_id",
+    "run_complete",
+    "generated_at",
+    "condition_count",
+    "conditions"
+  ],
+  "properties": {
+    "summary_schema_version": {
+      "const": "1.0.0"
+    },
+    "metric_contract_version": {
+      "const": "1.0.0"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12}$"
+    },
+    "run_complete": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "condition_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conditionSummary"
+      }
+    }
+  },
+  "$defs": {
+    "conditionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "comparison_key",
+        "dimensions",
+        "planned_attempts",
+        "started_attempts",
+        "terminal_attempts",
+        "run_complete",
+        "outcome_counts",
+        "metrics"
+      ],
+      "properties": {
+        "condition_id": {
+          "type": "string",
+          "pattern": "^cond_[0-9a-f]{16}$"
+        },
+        "comparison_key": {
+          "type": "string",
+          "pattern": "^cmp_[0-9a-f]{16}$"
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "model",
+            "quantization",
+            "concurrency",
+            "prompt_length",
+            "prompt_length_unit",
+            "output_length",
+            "output_length_unit",
+            "max_completion_tokens",
+            "temperature",
+            "request_seed",
+            "structured_mode",
+            "stream",
+            "repetitions"
+          ],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "quantization": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "prompt_length": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "prompt_length_unit": {
+              "enum": [
+                "tokens",
+                "characters"
+              ]
+            },
+            "output_length": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "output_length_unit": {
+              "enum": [
+                "tokens",
+                "characters"
+              ]
+            },
+            "max_completion_tokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0
+            },
+            "request_seed": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "structured_mode": {
+              "type": "string"
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "repetitions": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "planned_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "started_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_complete": {
+          "type": "boolean"
+        },
+        "outcome_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_success_rate",
+            "json_parse_rate",
+            "schema_valid_rate",
+            "micro_field_accuracy",
+            "macro_field_accuracy",
+            "exact_correct_rate",
+            "repeat_consistency_rate",
+            "median_e2e_latency_ms",
+            "p95_e2e_latency_ms",
+            "median_ttft_ms",
+            "p95_ttft_ms",
+            "median_tpot_ms",
+            "p95_tpot_ms",
+            "attempt_throughput_rps",
+            "request_throughput_rps",
+            "output_token_throughput_tps",
+            "quality_goodput_rps"
+          ],
+          "properties": {
+            "request_success_rate": {
+              "$ref": "#/$defs/metric"
+            },
+            "json_parse_rate": {
+              "$ref": "#/$defs/metric"
+            },
+            "schema_valid_rate": {
+              "$ref": "#/$defs/metric"
+            },
+            "micro_field_accuracy": {
+              "$ref": "#/$defs/metric"
+            },
+            "macro_field_accuracy": {
+              "$ref": "#/$defs/metric"
+            },
+            "exact_correct_rate": {
+              "$ref": "#/$defs/metric"
+            },
+            "repeat_consistency_rate": {
+              "$ref": "#/$defs/metric"
+            },
+            "median_e2e_latency_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "p95_e2e_latency_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "median_ttft_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "p95_ttft_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "median_tpot_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "p95_tpot_ms": {
+              "$ref": "#/$defs/metric"
+            },
+            "attempt_throughput_rps": {
+              "$ref": "#/$defs/metric"
+            },
+            "request_throughput_rps": {
+              "$ref": "#/$defs/metric"
+            },
+            "output_token_throughput_tps": {
+              "$ref": "#/$defs/metric"
+            },
+            "quality_goodput_rps": {
+              "$ref": "#/$defs/metric"
+            },
+            "schema_valid_given_parse": {
+              "$ref": "#/$defs/metric"
+            },
+            "exact_correct_given_schema": {
+              "$ref": "#/$defs/metric"
+            },
+            "all_repeats_correct_case_rate": {
+              "$ref": "#/$defs/metric"
+            }
+          }
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "numerator",
+        "denominator",
+        "eligible_observations",
+        "interval",
+        "low_confidence"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "numerator": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "denominator": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eligible_observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interval": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/interval"
+            }
+          ]
+        },
+        "low_confidence": {
+          "type": "boolean"
+        }
+      }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "confidence_level",
+        "sample_count",
+        "resamples",
+        "valid_resamples",
+        "lower",
+        "upper",
+        "low_confidence"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "wilson",
+            "percentile_cluster_bootstrap",
+            "percentile_repetition_bootstrap"
+          ]
+        },
+        "confidence_level": {
+          "const": 0.95
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resamples": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "valid_resamples": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "lower": {
+          "type": "number"
+        },
+        "upper": {
+          "type": "number"
+        },
+        "low_confidence": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

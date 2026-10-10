@@ -120,7 +120,7 @@ UniqueKeyLoader.add_constructor(
 def load_schema(name: str) -> dict[str, Any]:
     """Load a canonical JSON Schema from a wheel or source checkout."""
 
-    if name not in {"attempt", "case", "condition", "experiment"}:
+    if name not in {"attempt", "case", "condition", "experiment", "summary"}:
         raise ValueError(f"unknown schema: {name}")
 
     packaged = resources.files("structured_output_reliability").joinpath(

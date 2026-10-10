@@ -162,6 +162,18 @@ def score_response(
     }
 
 
+def semantically_equal(
+    left: Any,
+    right: Any,
+    comparison: Mapping[str, Any],
+) -> bool:
+    """Compare two parsed JSON values using one case's comparison policy."""
+
+    return _values_equal(left, right, comparison) and _values_equal(
+        right, left, comparison
+    )
+
+
 def _empty_score(
     *, request_success: bool, total_fields: int, primary_outcome: str
 ) -> dict[str, Any]:

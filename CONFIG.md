@@ -4,7 +4,7 @@ Status: frozen for MVP v0.1
 
 Configuration contract version: 1.0.0
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 ## 1. Purpose
 
@@ -284,7 +284,25 @@ The writer and offline reader both enforce these cross-field invariants:
 Timing durations are monotonic-clock nanoseconds. Wall-clock timestamps exist
 for provenance only. Unavailable TTFT or TPOT values are JSON `null`, never zero.
 
-## 9. Versioning
+## 9. Summary records
+
+`summary.json` contains one entry per condition and follows
+`schemas/summary.schema.json`. Every metric stores its point value,
+numerator/denominator where applicable, eligible-observation count,
+low-confidence flag, and complete confidence-interval metadata. Unavailable
+values are JSON `null`, never a fabricated zero.
+
+`summary.csv` is a wide, one-row-per-condition representation of the same
+results. It includes the experiment dimensions and expands every metric into
+value, numerator, denominator, eligible count, confidence bounds, and
+low-confidence columns.
+
+Both files are reproducible offline from the resolved configuration, cases,
+conditions, and attempts. Before aggregating, the reader validates every record
+and verifies the resolved-configuration, complete case-set, and per-condition
+case-set hashes.
+
+## 10. Versioning
 
 Every record carries its own schema version. Additive changes require a minor
 version; incompatible meaning or required-field changes require a major version.

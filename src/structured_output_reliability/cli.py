@@ -19,6 +19,7 @@ from structured_output_reliability.generator import (
     generate_cases,
     write_cases_jsonl,
 )
+from structured_output_reliability.metrics import AggregationError, summarize_run
 from structured_output_reliability.scorer import (
     REQUEST_FAILURES,
     ScoringError,
@@ -102,6 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit a machine-readable run result",
     )
+
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        help="regenerate JSON and CSV metrics from a saved run",
+    )
+    summarize_parser.add_argument("run_directory", type=Path)
+    summarize_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable summary result",
+    )
     return parser
 
 
@@ -126,6 +138,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "run":
         return _run_command(args.config, json_output=args.json)
+    if args.command == "summarize":
+        return _summarize_command(args.run_directory, json_output=args.json)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
@@ -314,4 +328,41 @@ def _run_command(config_path: Path, *, json_output: bool) -> int:
         print(f"{result.measured_attempts} measured attempts")
         print(f"{result.warmup_attempts} warmup attempts")
         print(f"{result.request_failures} request failures")
+    return 0
+
+
+def _summarize_command(run_directory: Path, *, json_output: bool) -> int:
+    try:
+        result = summarize_run(run_directory)
+    except AggregationError as exc:
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "summarized": False,
+                        "run_directory": str(run_directory),
+                        "issue": str(exc),
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"Summarization failed: {exc}", file=sys.stderr)
+        return 2
+
+    output = {
+        "summarized": True,
+        "run_id": result.summary["run_id"],
+        "run_complete": result.summary["run_complete"],
+        "condition_count": result.summary["condition_count"],
+        "summary_json": str(result.json_path),
+        "summary_csv": str(result.csv_path),
+    }
+    if json_output:
+        print(json.dumps(output, sort_keys=True))
+    else:
+        print(f"Summary complete: {result.summary['run_id']}")
+        print(f"JSON: {result.json_path}")
+        print(f"CSV: {result.csv_path}")
+        print(f"{result.summary['condition_count']} conditions")
     return 0

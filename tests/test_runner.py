@@ -258,9 +258,14 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     assert all(header is None for header in state.authorization_headers)
 
     manifest = json.loads((run_directory / "manifest.json").read_text())
+    summary = json.loads((run_directory / "summary.json").read_text())
     conditions = _jsonl(run_directory / "conditions.jsonl")
     attempts = _jsonl(run_directory / "responses.jsonl")
     assert manifest["run_complete"] is True
+    assert summary["run_complete"] is True
+    assert summary["conditions"][0]["metrics"]["request_success_rate"]["value"] == 1
+    assert summary["conditions"][0]["metrics"]["exact_correct_rate"]["value"] == 1
+    assert (run_directory / "summary.csv").is_file()
     assert len(_jsonl(run_directory / "cases.jsonl")) == 4
     assert len(conditions) == 1
     assert len(attempts) == 5
@@ -278,6 +283,25 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     condition_validator.validate(conditions[0])
     for attempt in attempts:
         attempt_validator.validate(attempt)
+
+    summarize_exit = main(["summarize", str(run_directory), "--json"])
+    summarize_output = json.loads(capsys.readouterr().out)
+    assert summarize_exit == 0
+    assert summarize_output["summarized"] is True
+    assert summarize_output["run_id"] == output["run_id"]
+    assert summarize_output["condition_count"] == 1
+
+    tampered_cases = _jsonl(run_directory / "cases.jsonl")
+    tampered_cases[0]["generator"]["seed"] += 1
+    (run_directory / "cases.jsonl").write_text(
+        "".join(canonical_json(case) + "\n" for case in tampered_cases),
+        encoding="utf-8",
+    )
+    tampered_exit = main(["summarize", str(run_directory), "--json"])
+    tampered_output = json.loads(capsys.readouterr().out)
+    assert tampered_exit == 2
+    assert tampered_output["summarized"] is False
+    assert "hash does not match" in tampered_output["issue"]
 
 
 def test_streaming_run_records_ttft_tpot_and_events(tmp_path: Path) -> None:

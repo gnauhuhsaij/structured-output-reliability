@@ -8,7 +8,8 @@ The project is currently implementing its v0.1 MVP. It can validate an
 experiment file, deterministically expand its test matrix, generate
 self-contained cases, execute them against an OpenAI-compatible Chat
 Completions endpoint under fixed concurrency, and strictly score every saved
-assistant response.
+assistant response. It also aggregates condition-level correctness,
+consistency, latency, throughput, goodput, and confidence intervals offline.
 
 ## Development setup
 
@@ -106,9 +107,21 @@ run directory contains:
   cases.jsonl
   conditions.jsonl
   responses.jsonl
+  summary.json
+  summary.csv
 ```
 
-Aggregate JSON/CSV and the Markdown report are the next implementation stage.
+The summary is generated automatically after a run. It can be reproduced from
+the saved evidence without contacting the model service:
+
+```bash
+sor summarize runs/<run_id>
+```
+
+The aggregator verifies record schemas and configuration/case-set hashes,
+excludes warmups, keeps failed attempts in correctness denominators, and never
+pools different conditions. A Markdown report and regression gates are the next
+implementation stage.
 
 ## Contracts
 
