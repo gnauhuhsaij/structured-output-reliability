@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 
 from structured_output_reliability.cli import main
+from structured_output_reliability.config import load_experiment
+from structured_output_reliability.generator import (
+    canonical_json,
+    generate_cases,
+    write_cases_jsonl,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = REPOSITORY_ROOT / "examples" / "experiment.yaml"
@@ -98,3 +104,104 @@ def test_generate_command_json_and_overwrite_protection(
     assert result == 2
     assert failure["generated"] is False
     assert "--force" in failure["issues"][0]["message"]
+
+
+def test_score_command(capsys, tmp_path: Path) -> None:
+    generated = generate_cases(load_experiment(CHARACTER_EXAMPLE))
+    case = generated.records[0]
+    cases_path = tmp_path / "cases.jsonl"
+    response_path = tmp_path / "response.txt"
+    write_cases_jsonl(generated, cases_path)
+    response_path.write_text(canonical_json(case["expected"]), encoding="utf-8")
+
+    result = main(
+        [
+            "score",
+            str(cases_path),
+            "--case-id",
+            case["case_id"],
+            "--response",
+            str(response_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Primary outcome: exact_correct" in captured.out
+    assert "Exact correct: True" in captured.out
+    assert "Correct fields: 4/4" in captured.out
+    assert captured.err == ""
+
+
+def test_score_command_json_for_invalid_content(capsys, tmp_path: Path) -> None:
+    generated = generate_cases(load_experiment(CHARACTER_EXAMPLE))
+    case = generated.records[0]
+    cases_path = tmp_path / "cases.jsonl"
+    response_path = tmp_path / "response.txt"
+    write_cases_jsonl(generated, cases_path)
+    response_path.write_text("```json\n{}\n```", encoding="utf-8")
+
+    result = main(
+        [
+            "score",
+            str(cases_path),
+            "--case-id",
+            case["case_id"],
+            "--response",
+            str(response_path),
+            "--json",
+        ]
+    )
+
+    score = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert score["json_parsed"] is False
+    assert score["primary_outcome"] == "invalid_json"
+    assert score["total_fields"] == 4
+
+
+def test_score_command_request_failure(capsys, tmp_path: Path) -> None:
+    generated = generate_cases(load_experiment(CHARACTER_EXAMPLE))
+    case = generated.records[0]
+    cases_path = tmp_path / "cases.jsonl"
+    write_cases_jsonl(generated, cases_path)
+
+    result = main(
+        [
+            "score",
+            str(cases_path),
+            "--case-id",
+            case["case_id"],
+            "--request-failure",
+            "timeout",
+            "--json",
+        ]
+    )
+
+    score = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert score["request_success"] is False
+    assert score["primary_outcome"] == "timeout"
+
+
+def test_score_command_missing_case_is_setup_error(capsys, tmp_path: Path) -> None:
+    generated = generate_cases(load_experiment(CHARACTER_EXAMPLE))
+    cases_path = tmp_path / "cases.jsonl"
+    response_path = tmp_path / "response.txt"
+    write_cases_jsonl(generated, cases_path)
+    response_path.write_text("{}", encoding="utf-8")
+
+    result = main(
+        [
+            "score",
+            str(cases_path),
+            "--case-id",
+            "case_0000000000000000",
+            "--response",
+            str(response_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "was not found" in captured.err

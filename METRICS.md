@@ -134,6 +134,13 @@ Default comparisons are:
 - array: order-sensitive;
 - object: recursive comparison by key.
 
+For `absolute_tolerance`, numeric values match when
+`abs(actual - expected) <= absolute_tolerance`. For `relative_tolerance`, they
+match when
+`abs(actual - expected) <= relative_tolerance * abs(expected)`. Therefore, a
+zero expected value requires an exact zero under relative tolerance. Integer
+fields remain exact under every numeric policy.
+
 No string-to-number, number-to-boolean, or other type coercion is allowed. In
 particular, JSON `true` is not equal to JSON `1`.
 

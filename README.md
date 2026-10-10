@@ -5,8 +5,8 @@ measuring whether an OpenAI-compatible model service continues to produce
 correct structured output under load.
 
 The project is currently implementing its v0.1 MVP. It can validate an
-experiment file, deterministically expand its test matrix, and generate the
-self-contained cases that will later be sent to a model service.
+experiment file, deterministically expand its test matrix, generate
+self-contained cases, and strictly score saved assistant content offline.
 
 ## Development setup
 
@@ -58,6 +58,27 @@ python -m pip install -e '.[dev,tokenizer]'
 
 Loading a tokenizer may download its files on first use. The tokenizer is used
 only to count and size cases; no model weights are loaded.
+
+Score the exact assistant content saved in a UTF-8 file against one generated
+case:
+
+```bash
+sor score artifacts/cases.jsonl \
+  --case-id case_1ef862e16b62bb77 \
+  --response response.txt
+```
+
+Use `--json` for the complete score record. The primary path does not remove
+Markdown fences, extract a JSON substring, coerce types, or repair malformed
+content. A request that failed before content evaluation can also be recorded
+without shrinking correctness denominators:
+
+```bash
+sor score artifacts/cases.jsonl \
+  --case-id case_1ef862e16b62bb77 \
+  --request-failure timeout \
+  --json
+```
 
 ## Contracts
 

@@ -19,6 +19,12 @@ from structured_output_reliability.generator import (
     generate_cases,
     write_cases_jsonl,
 )
+from structured_output_reliability.scorer import (
+    REQUEST_FAILURES,
+    ScoringError,
+    load_case_from_jsonl,
+    score_response,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,6 +67,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit a machine-readable generation result",
     )
+
+    score_parser = subparsers.add_parser(
+        "score",
+        help="score one saved response against one generated case",
+    )
+    score_parser.add_argument("cases", type=Path)
+    score_parser.add_argument("--case-id", required=True)
+    response_source = score_parser.add_mutually_exclusive_group(required=True)
+    response_source.add_argument(
+        "--response",
+        type=Path,
+        help="UTF-8 file containing the exact assistant content",
+    )
+    response_source.add_argument(
+        "--request-failure",
+        choices=REQUEST_FAILURES,
+        help="score an attempt that failed before content evaluation",
+    )
+    score_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the complete machine-readable score",
+    )
     return parser
 
 
@@ -73,6 +102,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.config,
             output_path=args.output,
             overwrite=args.force,
+            json_output=args.json,
+        )
+    if args.command == "score":
+        return _score_command(
+            args.cases,
+            case_id=args.case_id,
+            response_path=args.response,
+            request_failure=args.request_failure,
             json_output=args.json,
         )
     raise AssertionError(f"unhandled command: {args.command}")
@@ -170,4 +207,57 @@ def _generate_command(
     else:
         print(f"Generated {len(generated.records)} cases: {output_path}")
         print(f"Case-set SHA-256: {generated.sha256}")
+    return 0
+
+
+def _score_command(
+    cases_path: Path,
+    *,
+    case_id: str,
+    response_path: Path | None,
+    request_failure: str | None,
+    json_output: bool,
+) -> int:
+    try:
+        case = load_case_from_jsonl(cases_path, case_id)
+        if response_path is None:
+            content = None
+        else:
+            try:
+                content = response_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise ScoringError(
+                    f"cannot read response file {response_path}: {exc}"
+                ) from exc
+        score = score_response(
+            case,
+            content,
+            request_failure=request_failure,
+        )
+    except ScoringError as exc:
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "scored": False,
+                        "case_id": case_id,
+                        "issue": str(exc),
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"Scoring failed: {exc}", file=sys.stderr)
+        return 2
+
+    if json_output:
+        print(json.dumps(score, ensure_ascii=False, sort_keys=True))
+    else:
+        print(f"Case: {case_id}")
+        print(f"Primary outcome: {score['primary_outcome']}")
+        print(f"Request success: {score['request_success']}")
+        print(f"JSON parsed: {score['json_parsed']}")
+        print(f"Schema valid: {score['schema_valid']}")
+        print(f"Exact correct: {score['exact_correct']}")
+        print(f"Correct fields: {score['correct_fields']}/{score['total_fields']}")
     return 0
