@@ -21,6 +21,16 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 ```
 
+Run the deterministic end-to-end smoke test with no API key or external model:
+
+```bash
+python scripts/smoke_test.py
+```
+
+It starts a temporary local OpenAI-compatible endpoint and verifies the complete
+path from YAML validation through request execution, scoring, aggregation, and
+Markdown reporting. The temporary run directory is removed after success.
+
 Validate the included experiment:
 
 ```bash
@@ -156,6 +166,30 @@ gates:
 `sor run`, `sor summarize`, and `sor report` return exit code `1` when a
 configured gate fails or is unavailable. Setup, artifact, and reporting errors
 return `2`. The run manifest remains complete after an ordinary gate failure.
+
+## Container
+
+Build the CLI image and verify it:
+
+```bash
+docker build -t structured-output-reliability .
+docker run --rm structured-output-reliability --version
+```
+
+Mount an experiment directory at `/workspace` to run a real configuration. The
+configured endpoint URL must be reachable from inside the container, and the
+mounted output directory must be writable by the container user (UID 10001):
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  structured-output-reliability \
+  validate /workspace/examples/character-experiment.yaml
+```
+
+The GitHub Actions workflow tests Python 3.11 and 3.14, runs the end-to-end
+smoke test, builds the wheel and source distribution, and verifies the Docker
+image.
 
 ## Contracts
 

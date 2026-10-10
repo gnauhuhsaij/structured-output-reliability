@@ -3,29 +3,80 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version:
-          - "3.11"
-          - "3.14"
-
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest
-      - run: python -m compileall -q src
-      - run: sor validate examples/experiment.yaml
-      - run: sor generate examples/character-experiment.yaml --output /tmp/sor-cases.jsonl
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Compile package
+        run: python -m compileall -q src
+      - name: Validate example configuration
+        run: sor validate examples/experiment.yaml
+      - name: Generate example cases
+        run: >-
+          sor generate examples/character-experiment.yaml
+          --output /tmp/sor-cases.jsonl
+      - name: Run end-to-end smoke test
+        run: python scripts/smoke_test.py
+
+  package:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Verify wheel installation
+        run: |
+          python -m pip install dist/*.whl
+          sor --version
+      - uses: actions/upload-artifact@v6
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  container:
+    name: Build container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build --tag structured-output-reliability:ci .
+      - name: Verify container CLI
+        run: docker run --rm structured-output-reliability:ci --version
+      - name: Run container smoke test
+        run: >-
+          docker run --rm --entrypoint python
+          structured-output-reliability:ci
+          /opt/sor/scripts/smoke_test.py
