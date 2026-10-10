@@ -138,13 +138,23 @@ An optional `baseline_run` points to a prior run directory. Gates with
 `max_drop` or `max_increase_ratio` compare against that baseline. `minimum` and
 `maximum` gates can run without one. `estimate` selects the point estimate or a
 confidence-interval bound, allowing conservative CI gates such as a minimum on
-`lower_ci`.
+`lower_ci`. At execution time, a relative `baseline_run` is resolved from the
+experiment YAML's directory and the absolute path is saved in
+`config.resolved.yaml`, so later offline reporting does not depend on the
+caller's working directory.
 
 Gate predicates are inclusive. `minimum` requires `estimate >= value`;
 `maximum` requires `estimate <= value`; `max_drop` requires the fractional drop
 `(baseline - current) / baseline <= value`; and `max_increase_ratio` requires
 `current / baseline <= value`. A zero baseline makes either relative predicate
 unavailable and therefore unable to pass.
+
+For a relative gate, the selected estimate policy is applied to both candidate
+and baseline metrics. Conditions pair only by exact `comparison_key`; a missing
+or duplicate match is unavailable and cannot pass. An incomplete candidate or
+baseline, an unavailable metric, or a requested confidence bound without an
+interval also cannot pass. Gate failure returns CLI exit code `1`; malformed
+configuration or artifacts return `2`.
 
 ## 3. Semantic validation
 
@@ -223,6 +233,13 @@ flush at the configured interval and never rewrite an earlier response line.
 contract versions, Python version, dependency versions relevant to scoring,
 tokenizer identity when present, start/end times, completion state, and artifact
 checksums.
+
+`report.md` contains run counts, per-condition metric values and denominators,
+outcome counts, gate decisions, and optional baseline comparisons. `sor run`
+creates it automatically; `sor summarize` or `sor report` can rebuild it from
+the saved evidence without contacting the endpoint. A gate failure does not
+rewrite `manifest.json` as incomplete because execution and regression policy
+are separate outcomes.
 
 ## 6. Case records
 

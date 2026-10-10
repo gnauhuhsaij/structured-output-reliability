@@ -66,8 +66,8 @@ class SummaryResult:
     csv_path: Path
 
 
-def summarize_run(run_directory: str | Path) -> SummaryResult:
-    """Validate saved evidence, aggregate it, and replace summary artifacts."""
+def build_summary(run_directory: str | Path) -> dict[str, Any]:
+    """Validate saved evidence and aggregate it without writing artifacts."""
 
     directory = Path(run_directory)
     manifest = _load_json_object(directory / "manifest.json")
@@ -182,6 +182,14 @@ def summarize_run(run_directory: str | Path) -> SummaryResult:
         error = errors[0]
         raise AggregationError(f"generated invalid summary: {error.message}")
 
+    return summary
+
+
+def summarize_run(run_directory: str | Path) -> SummaryResult:
+    """Validate saved evidence, aggregate it, and replace summary artifacts."""
+
+    directory = Path(run_directory)
+    summary = build_summary(directory)
     json_path = directory / "summary.json"
     csv_path = directory / "summary.csv"
     _atomic_write_text(json_path, canonical_json(summary) + "\n")

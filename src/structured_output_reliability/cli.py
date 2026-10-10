@@ -20,6 +20,7 @@ from structured_output_reliability.generator import (
     write_cases_jsonl,
 )
 from structured_output_reliability.metrics import AggregationError, summarize_run
+from structured_output_reliability.report import ReportingError, generate_report
 from structured_output_reliability.scorer import (
     REQUEST_FAILURES,
     ScoringError,
@@ -106,13 +107,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     summarize_parser = subparsers.add_parser(
         "summarize",
-        help="regenerate JSON and CSV metrics from a saved run",
+        help="regenerate metrics, Markdown report, and regression gates",
     )
     summarize_parser.add_argument("run_directory", type=Path)
     summarize_parser.add_argument(
         "--json",
         action="store_true",
         help="emit a machine-readable summary result",
+    )
+
+    report_parser = subparsers.add_parser(
+        "report",
+        help="regenerate a Markdown report and evaluate regression gates",
+    )
+    report_parser.add_argument("run_directory", type=Path)
+    report_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable report result",
     )
     return parser
 
@@ -140,6 +152,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_command(args.config, json_output=args.json)
     if args.command == "summarize":
         return _summarize_command(args.run_directory, json_output=args.json)
+    if args.command == "report":
+        return _report_command(args.run_directory, json_output=args.json)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
@@ -318,6 +332,9 @@ def _run_command(config_path: Path, *, json_output: bool) -> int:
         "measured_attempts": result.measured_attempts,
         "warmup_attempts": result.warmup_attempts,
         "request_failures": result.request_failures,
+        "report": str(result.report_path),
+        "gates_configured": result.gates_configured,
+        "gates_passed": result.gates_passed,
     }
     if json_output:
         print(json.dumps(output, sort_keys=True))
@@ -328,13 +345,17 @@ def _run_command(config_path: Path, *, json_output: bool) -> int:
         print(f"{result.measured_attempts} measured attempts")
         print(f"{result.warmup_attempts} warmup attempts")
         print(f"{result.request_failures} request failures")
-    return 0
+        print(f"Report: {result.report_path}")
+        if result.gates_configured:
+            print(f"Regression gates: {'PASS' if result.gates_passed else 'FAIL'}")
+    return 0 if result.gates_passed else 1
 
 
 def _summarize_command(run_directory: Path, *, json_output: bool) -> int:
     try:
         result = summarize_run(run_directory)
-    except AggregationError as exc:
+        report = generate_report(run_directory, candidate_summary=result.summary)
+    except (AggregationError, ReportingError) as exc:
         if json_output:
             print(
                 json.dumps(
@@ -357,6 +378,10 @@ def _summarize_command(run_directory: Path, *, json_output: bool) -> int:
         "condition_count": result.summary["condition_count"],
         "summary_json": str(result.json_path),
         "summary_csv": str(result.csv_path),
+        "report": str(report.report_path),
+        "gates_configured": report.gates_configured,
+        "gates_passed": report.gates_passed,
+        "baseline_run_id": report.baseline_run_id,
     }
     if json_output:
         print(json.dumps(output, sort_keys=True))
@@ -364,5 +389,52 @@ def _summarize_command(run_directory: Path, *, json_output: bool) -> int:
         print(f"Summary complete: {result.summary['run_id']}")
         print(f"JSON: {result.json_path}")
         print(f"CSV: {result.csv_path}")
+        print(f"Report: {report.report_path}")
         print(f"{result.summary['condition_count']} conditions")
-    return 0
+        if report.gates_configured:
+            print(f"Regression gates: {'PASS' if report.gates_passed else 'FAIL'}")
+    return 0 if report.gates_passed else 1
+
+
+def _report_command(run_directory: Path, *, json_output: bool) -> int:
+    try:
+        summary = summarize_run(run_directory)
+        report = generate_report(run_directory, candidate_summary=summary.summary)
+    except (AggregationError, ReportingError) as exc:
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "reported": False,
+                        "run_directory": str(run_directory),
+                        "issue": str(exc),
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"Report generation failed: {exc}", file=sys.stderr)
+        return 2
+
+    output = {
+        "reported": True,
+        "run_id": summary.summary["run_id"],
+        "run_complete": summary.summary["run_complete"],
+        "report": str(report.report_path),
+        "gates_configured": report.gates_configured,
+        "gates_passed": report.gates_passed,
+        "baseline_run_id": report.baseline_run_id,
+        "matched_conditions": report.matched_conditions,
+        "unmatched_candidate_conditions": report.unmatched_candidate_conditions,
+        "unmatched_baseline_conditions": report.unmatched_baseline_conditions,
+    }
+    if json_output:
+        print(json.dumps(output, sort_keys=True))
+    else:
+        print(f"Report complete: {summary.summary['run_id']}")
+        print(f"Markdown: {report.report_path}")
+        if report.gates_configured:
+            print(f"Regression gates: {'PASS' if report.gates_passed else 'FAIL'}")
+        else:
+            print("Regression gates: not configured")
+    return 0 if report.gates_passed else 1

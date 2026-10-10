@@ -33,7 +33,12 @@ from structured_output_reliability.generator import (
     generate_cases,
     write_cases_jsonl,
 )
-from structured_output_reliability.metrics import summarize_run
+from structured_output_reliability.metrics import (
+    AggregationError,
+    build_summary,
+    summarize_run,
+)
+from structured_output_reliability.report import ReportingError, generate_report
 from structured_output_reliability.scorer import score_response
 
 CONFIGURATION_CONTRACT_VERSION = "1.0.0"
@@ -56,6 +61,9 @@ class RunResult:
     measured_attempts: int
     warmup_attempts: int
     request_failures: int
+    report_path: Path
+    gates_configured: int
+    gates_passed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +118,20 @@ def run_experiment(config_path: str | Path) -> RunResult:
 
     source_path = Path(config_path)
     config = load_experiment(source_path)
+    if "baseline_run" in config:
+        baseline_path = Path(config["baseline_run"]).expanduser()
+        if not baseline_path.is_absolute():
+            baseline_path = (source_path.resolve().parent / baseline_path).resolve()
+        config["baseline_run"] = str(baseline_path)
+        try:
+            baseline_summary = build_summary(baseline_path)
+        except AggregationError as exc:
+            raise RunnerError(f"baseline run is invalid: {exc}") from exc
+        if any(
+            gate["kind"] in {"max_drop", "max_increase_ratio"}
+            for gate in config["gates"]
+        ) and baseline_summary["run_complete"] is not True:
+            raise RunnerError("baseline run is incomplete and cannot serve gates")
     api_key = _load_api_key(config["endpoint"])
 
     local_tokenizer: HuggingFaceLengthMeasurer | None = None
@@ -201,7 +223,7 @@ def run_experiment(config_path: str | Path) -> RunResult:
             }
         )
         _atomic_write_json(run_directory / "manifest.json", manifest)
-        summarize_run(run_directory)
+        summary_result = summarize_run(run_directory)
     except BaseException:
         manifest.update(
             {
@@ -221,6 +243,12 @@ def run_experiment(config_path: str | Path) -> RunResult:
 
     if not manifest["run_complete"]:
         raise RunnerError(f"run ended without every planned attempt: {run_directory}")
+    try:
+        report_result = generate_report(
+            run_directory, candidate_summary=summary_result.summary
+        )
+    except ReportingError as exc:
+        raise RunnerError(f"run completed but report generation failed: {exc}") from exc
     return RunResult(
         run_id=run_id,
         run_directory=run_directory,
@@ -228,6 +256,9 @@ def run_experiment(config_path: str | Path) -> RunResult:
         measured_attempts=measured_attempts,
         warmup_attempts=warmup_attempts,
         request_failures=request_failures,
+        report_path=report_result.report_path,
+        gates_configured=report_result.gates_configured,
+        gates_passed=report_result.gates_passed,
     )
 
 

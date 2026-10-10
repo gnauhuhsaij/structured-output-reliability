@@ -442,6 +442,11 @@ bound:
 - maximum increase ratio from baseline:
   `candidate / baseline <= configured value`.
 
+For relative gates, the configured estimate selector is applied to both the
+candidate and baseline metric. For example, `lower_ci` compares the two lower
+bounds; if either interval is unavailable, the gate is unavailable and cannot
+pass.
+
 A zero baseline makes either relative comparison unavailable. A gate is
 evaluated for every measured candidate condition and passes only if all
 conditions pass. An unavailable metric, incomplete run, or missing or duplicate
@@ -449,6 +454,9 @@ baseline match cannot pass a gate.
 
 No default threshold is inferred. Every threshold and gate policy must be
 present in the resolved configuration and reproduced in the report.
+Gate failure is a policy result, not an incomplete model run: CLI commands use
+exit code 1 for a failed or unavailable gate while preserving the completed run
+manifest. Invalid configuration or corrupt evidence uses exit code 2.
 
 ## 13. Required aggregate names
 

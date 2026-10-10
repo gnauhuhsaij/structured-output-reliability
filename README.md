@@ -10,6 +10,8 @@ self-contained cases, execute them against an OpenAI-compatible Chat
 Completions endpoint under fixed concurrency, and strictly score every saved
 assistant response. It also aggregates condition-level correctness,
 consistency, latency, throughput, goodput, and confidence intervals offline.
+Every completed run also receives a Markdown report, and configured regression
+gates can fail a CI command without changing the run's completed status.
 
 ## Development setup
 
@@ -109,10 +111,11 @@ run directory contains:
   responses.jsonl
   summary.json
   summary.csv
+  report.md
 ```
 
-The summary is generated automatically after a run. It can be reproduced from
-the saved evidence without contacting the model service:
+The summary and Markdown report are generated automatically after a run. They
+can be reproduced from the saved evidence without contacting the model service:
 
 ```bash
 sor summarize runs/<run_id>
@@ -120,8 +123,39 @@ sor summarize runs/<run_id>
 
 The aggregator verifies record schemas and configuration/case-set hashes,
 excludes warmups, keeps failed attempts in correctness denominators, and never
-pools different conditions. A Markdown report and regression gates are the next
-implementation stage.
+pools different conditions. To regenerate the report explicitly and evaluate
+its gates:
+
+```bash
+sor report runs/<run_id>
+```
+
+Absolute gates use only the candidate run:
+
+```yaml
+gates:
+  - metric: schema_valid_rate
+    kind: minimum
+    value: 0.95
+    estimate: lower_ci
+```
+
+Relative gates point to a complete prior run. Relative paths are resolved from
+the experiment YAML's directory when `sor run` starts and saved as absolute
+paths in `config.resolved.yaml`:
+
+```yaml
+baseline_run: ./runs/20261010T120000000000Z_0123456789ab
+gates:
+  - metric: exact_correct_rate
+    kind: max_drop
+    value: 0.02
+    estimate: point
+```
+
+`sor run`, `sor summarize`, and `sor report` return exit code `1` when a
+configured gate fails or is unavailable. Setup, artifact, and reporting errors
+return `2`. The run manifest remains complete after an ordinary gate failure.
 
 ## Contracts
 

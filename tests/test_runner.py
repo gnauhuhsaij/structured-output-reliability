@@ -252,6 +252,8 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     assert output["measured_attempts"] == 4
     assert output["warmup_attempts"] == 1
     assert output["request_failures"] == 0
+    assert output["gates_configured"] == 0
+    assert output["gates_passed"] is True
     assert state.max_active == 2
     assert len(state.bodies) == 5
     assert all("response_format" in body for body in state.bodies)
@@ -266,6 +268,10 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     assert summary["conditions"][0]["metrics"]["request_success_rate"]["value"] == 1
     assert summary["conditions"][0]["metrics"]["exact_correct_rate"]["value"] == 1
     assert (run_directory / "summary.csv").is_file()
+    assert (run_directory / "report.md").is_file()
+    assert "Regression gates: **NOT CONFIGURED**" in (
+        run_directory / "report.md"
+    ).read_text(encoding="utf-8")
     assert len(_jsonl(run_directory / "cases.jsonl")) == 4
     assert len(conditions) == 1
     assert len(attempts) == 5
@@ -290,6 +296,14 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     assert summarize_output["summarized"] is True
     assert summarize_output["run_id"] == output["run_id"]
     assert summarize_output["condition_count"] == 1
+    assert summarize_output["gates_passed"] is True
+
+    report_exit = main(["report", str(run_directory), "--json"])
+    report_output = json.loads(capsys.readouterr().out)
+    assert report_exit == 0
+    assert report_output["reported"] is True
+    assert report_output["gates_configured"] == 0
+    assert report_output["gates_passed"] is True
 
     tampered_cases = _jsonl(run_directory / "cases.jsonl")
     tampered_cases[0]["generator"]["seed"] += 1
@@ -399,6 +413,91 @@ def test_named_api_key_is_sent_but_never_persisted(
     for path in result.run_directory.iterdir():
         if path.is_file():
             assert secret not in path.read_text(encoding="utf-8")
+
+
+def test_baseline_regression_gate_fails_without_marking_run_incomplete(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    with mock_openai_server() as (base_url, _):
+        baseline_config = _write_config(
+            tmp_path,
+            base_url=base_url,
+            model="exact",
+        )
+        baseline = run_experiment(baseline_config)
+
+        candidate_config = _write_config(
+            tmp_path,
+            base_url=base_url,
+            model="field-incorrect",
+        )
+        candidate_document = yaml.safe_load(candidate_config.read_text(encoding="utf-8"))
+        candidate_document["baseline_run"] = str(
+            baseline.run_directory.relative_to(tmp_path)
+        )
+        candidate_document["gates"] = [
+            {
+                "metric": "exact_correct_rate",
+                "kind": "max_drop",
+                "value": 0,
+                "estimate": "point",
+            }
+        ]
+        candidate_config.write_text(
+            yaml.safe_dump(candidate_document, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        run_exit = main(["run", str(candidate_config), "--json"])
+        run_output = json.loads(capsys.readouterr().out)
+
+    assert run_exit == 1
+    assert run_output["completed"] is True
+    assert run_output["gates_configured"] == 1
+    assert run_output["gates_passed"] is False
+    candidate_directory = Path(run_output["run_directory"])
+    resolved = yaml.safe_load(
+        (candidate_directory / "config.resolved.yaml").read_text(encoding="utf-8")
+    )
+    assert resolved["baseline_run"] == str(baseline.run_directory)
+    manifest = json.loads((candidate_directory / "manifest.json").read_text())
+    assert manifest["run_complete"] is True
+    report = (candidate_directory / "report.md").read_text(encoding="utf-8")
+    assert "Regression gates: **FAIL**" in report
+    assert "`exact_correct_rate`" in report
+    assert "threshold violated" in report
+
+    exit_code = main(["report", str(candidate_directory), "--json"])
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert output["gates_passed"] is False
+    assert output["baseline_run_id"] == baseline.run_id
+    assert output["matched_conditions"] == 1
+
+
+def test_invalid_baseline_fails_before_creating_a_run(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        base_url="http://127.0.0.1:1/v1",
+        model="exact",
+    )
+    document = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    document["baseline_run"] = "missing-baseline"
+    document["gates"] = [
+        {
+            "metric": "exact_correct_rate",
+            "kind": "max_drop",
+            "value": 0,
+        }
+    ]
+    config_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RunnerError, match="baseline run is invalid"):
+        run_experiment(config_path)
+
+    assert not (tmp_path / "runs").exists()
 
 
 def test_missing_named_api_key_fails_before_creating_run_directory(
