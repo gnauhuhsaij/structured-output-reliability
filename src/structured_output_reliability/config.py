@@ -116,12 +116,15 @@ UniqueKeyLoader.add_constructor(
 )
 
 
-@lru_cache(maxsize=1)
-def load_experiment_schema() -> dict[str, Any]:
-    """Load the canonical experiment schema from a wheel or source checkout."""
+@lru_cache(maxsize=None)
+def load_schema(name: str) -> dict[str, Any]:
+    """Load a canonical JSON Schema from a wheel or source checkout."""
+
+    if name not in {"attempt", "case", "condition", "experiment"}:
+        raise ValueError(f"unknown schema: {name}")
 
     packaged = resources.files("structured_output_reliability").joinpath(
-        "schemas", "experiment.schema.json"
+        "schemas", f"{name}.schema.json"
     )
     try:
         text = packaged.read_text(encoding="utf-8")
@@ -129,13 +132,19 @@ def load_experiment_schema() -> dict[str, Any]:
         source_path = (
             Path(__file__).resolve().parents[2]
             / "schemas"
-            / "experiment.schema.json"
+            / f"{name}.schema.json"
         )
         text = source_path.read_text(encoding="utf-8")
 
     schema = json.loads(text)
     Draft202012Validator.check_schema(schema)
     return schema
+
+
+def load_experiment_schema() -> dict[str, Any]:
+    """Load the canonical experiment schema."""
+
+    return load_schema("experiment")
 
 
 def load_experiment(path: str | Path) -> dict[str, Any]:

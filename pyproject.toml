@@ -20,6 +20,9 @@ dependencies = [
 dev = [
   "pytest>=9.1,<10",
 ]
+tokenizer = [
+  "transformers>=5.19,<6",
+]
 
 [project.scripts]
 sor = "structured_output_reliability.cli:main"
@@ -48,4 +51,3 @@ packages = ["src/structured_output_reliability"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-

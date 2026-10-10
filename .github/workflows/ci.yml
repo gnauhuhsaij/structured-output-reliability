@@ -28,4 +28,4 @@ jobs:
       - run: python -m pytest
       - run: python -m compileall -q src
       - run: sor validate examples/experiment.yaml
-
+      - run: sor generate examples/character-experiment.yaml --output /tmp/sor-cases.jsonl

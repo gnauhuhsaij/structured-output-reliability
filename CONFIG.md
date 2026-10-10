@@ -55,8 +55,8 @@ value, and a prompt that asks for that value.
 
 - `tokens`: requires `tokenizer`; generated prompt lengths are exact under the
   configured tokenizer;
-- `characters`: does not require a tokenizer and is always labelled approximate
-  for cross-model comparisons.
+- `characters`: does not require a tokenizer and is labelled non-exact because
+  character counts are only a proxy for model context length.
 
 `matrix.prompt_lengths` supplies the target for the chosen unit.
 `matrix.output_shapes[].target_length` describes the target size of the expected
@@ -67,6 +67,18 @@ limit equals actual model output length.
 For token targets, prompt length includes the configured tokenizer's chat
 template. If that template is unavailable, token targeting is a setup error
 rather than a reason to silently count only message text.
+
+Character prompt length is the sum of Unicode code points in each message's
+`content`; role names and the request wrapper are excluded. Character output
+length is the number of Unicode code points in the canonical expected JSON.
+The generator still makes `actual` equal `target` for character cases, while
+the record's `exact` field remains false to prevent treating that proxy as an
+exact model-token measurement.
+
+Token prompt length is the length returned after applying the tokenizer's chat
+template with `add_generation_prompt=true`. Token output length is measured by
+encoding the canonical expected JSON without added special tokens. An exact
+target that cannot be reached by deterministic padding is a setup error.
 
 ### 2.3 Run behavior
 
