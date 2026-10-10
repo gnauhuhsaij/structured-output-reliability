@@ -2,7 +2,7 @@
 
 Status: MVP scope frozen for v0.1
 
-Last updated: 2026-10-04
+Last updated: 2026-10-09
 
 ## Problem
 
@@ -42,7 +42,7 @@ are outside the MVP.
 
 - one OpenAI-compatible base URL;
 - one YAML experiment configuration;
-- an API key obtained from a named environment variable;
+- an optional API key obtained from a named environment variable;
 - deterministic, program-generated test cases;
 - an optional local tokenizer for exact prompt/output length targeting.
 

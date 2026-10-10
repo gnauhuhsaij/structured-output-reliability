@@ -6,7 +6,7 @@ endpoint:
   base_url: http://127.0.0.1:8000/v1
   path: /chat/completions
   model: Qwen/Qwen3-8B
-  api_key_env: OPENAI_API_KEY
+  api_key_env: null
   timeout_seconds: 60
   quantization: awq
 

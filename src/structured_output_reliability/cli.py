@@ -25,6 +25,7 @@ from structured_output_reliability.scorer import (
     load_case_from_jsonl,
     score_response,
 )
+from structured_output_reliability.runner import RunnerError, run_experiment
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +91,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit the complete machine-readable score",
     )
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="run an experiment against its configured endpoint",
+    )
+    run_parser.add_argument("config", type=Path)
+    run_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable run result",
+    )
     return parser
 
 
@@ -112,6 +124,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             request_failure=args.request_failure,
             json_output=args.json,
         )
+    if args.command == "run":
+        return _run_command(args.config, json_output=args.json)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
@@ -260,4 +274,44 @@ def _score_command(
         print(f"Schema valid: {score['schema_valid']}")
         print(f"Exact correct: {score['exact_correct']}")
         print(f"Correct fields: {score['correct_fields']}/{score['total_fields']}")
+    return 0
+
+
+def _run_command(config_path: Path, *, json_output: bool) -> int:
+    try:
+        result = run_experiment(config_path)
+    except (ConfigurationError, GenerationError, RunnerError) as exc:
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "completed": False,
+                        "config": str(config_path),
+                        "issue": str(exc),
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"Run failed: {exc}", file=sys.stderr)
+        return 2
+
+    output = {
+        "completed": True,
+        "run_id": result.run_id,
+        "run_directory": str(result.run_directory),
+        "condition_count": result.condition_count,
+        "measured_attempts": result.measured_attempts,
+        "warmup_attempts": result.warmup_attempts,
+        "request_failures": result.request_failures,
+    }
+    if json_output:
+        print(json.dumps(output, sort_keys=True))
+    else:
+        print(f"Run complete: {result.run_id}")
+        print(f"Artifacts: {result.run_directory}")
+        print(f"{result.condition_count} conditions")
+        print(f"{result.measured_attempts} measured attempts")
+        print(f"{result.warmup_attempts} warmup attempts")
+        print(f"{result.request_failures} request failures")
     return 0

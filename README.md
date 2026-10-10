@@ -6,7 +6,9 @@ correct structured output under load.
 
 The project is currently implementing its v0.1 MVP. It can validate an
 experiment file, deterministically expand its test matrix, generate
-self-contained cases, and strictly score saved assistant content offline.
+self-contained cases, execute them against an OpenAI-compatible Chat
+Completions endpoint under fixed concurrency, and strictly score every saved
+assistant response.
 
 ## Development setup
 
@@ -34,7 +36,7 @@ Configuration valid: examples/experiment.yaml
 
 Use `--json` for machine-readable output. Validation is static and does not
 contact the configured endpoint or require its API-key environment variable to
-be set. Runtime readiness will be checked by the future `run` command.
+be set. Runtime readiness is checked by `sor run`.
 
 Generate a small offline workload with one case from every built-in family:
 
@@ -79,6 +81,34 @@ sor score artifacts/cases.jsonl \
   --request-failure timeout \
   --json
 ```
+
+Run the complete configured matrix against an already running service:
+
+```bash
+sor run examples/character-experiment.yaml
+```
+
+`sor run` sends real HTTP requests. Set `endpoint.api_key_env: null` for a
+local service with no authentication, or set it to an environment-variable
+name such as `OPENAI_API_KEY` for a service that requires a Bearer token. Never
+put the key itself in YAML.
+
+The runner uses closed-loop fixed concurrency, executes warmup and measured
+attempts, supports streaming SSE and non-streaming responses, measures E2E
+latency/TTFT/TPOT, and writes each terminal result incrementally. The current
+run directory contains:
+
+```text
+<output.root>/<run_id>/
+  config.input.yaml
+  config.resolved.yaml
+  manifest.json
+  cases.jsonl
+  conditions.jsonl
+  responses.jsonl
+```
+
+Aggregate JSON/CSV and the Markdown report are the next implementation stage.
 
 ## Contracts
 

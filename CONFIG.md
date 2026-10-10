@@ -4,7 +4,7 @@ Status: frozen for MVP v0.1
 
 Configuration contract version: 1.0.0
 
-Last updated: 2026-10-04
+Last updated: 2026-10-09
 
 ## 1. Purpose
 
@@ -31,8 +31,9 @@ them explicitly and save the result as `config.resolved.yaml`.
 `endpoint.path` defaults to `/chat/completions`. `endpoint.model` is sent in each
 request.
 
-`endpoint.api_key_env` contains an environment-variable name, never a key. The
-loader may read that variable at execution time, but its value must not appear
+`endpoint.api_key_env` contains an environment-variable name, never a key. Set
+it to `null` for a local service that does not require authentication. The
+runner reads a named variable at execution time, but its value must not appear
 in the resolved configuration, request records, logs, or reports. A missing
 named variable is a setup error before measured traffic starts.
 

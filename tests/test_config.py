@@ -94,6 +94,15 @@ def test_defaults_are_applied_without_mutating_input() -> None:
     assert resolved["output"]["include_stream_events"] is True
 
 
+def test_null_api_key_allows_unauthenticated_local_service() -> None:
+    document = minimal_config()
+    document["endpoint"]["api_key_env"] = None
+
+    resolved = validate_experiment(document)
+
+    assert resolved["endpoint"]["api_key_env"] is None
+
+
 def test_matrix_expansion_uses_normative_order() -> None:
     config = load_experiment(REPOSITORY_ROOT / "examples" / "experiment.yaml")
 
