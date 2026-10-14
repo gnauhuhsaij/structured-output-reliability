@@ -27,7 +27,7 @@ from structured_output_reliability.scorer import (
     load_case_from_jsonl,
     score_response,
 )
-from structured_output_reliability.runner import RunnerError, run_experiment
+from structured_output_reliability.runner import RunProgress, RunnerError, run_experiment
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="emit a machine-readable validation result",
+    )
+    validate_parser.add_argument(
+        "--check-cases",
+        action="store_true",
+        help="generate and validate every case in memory without writing a file",
     )
 
     generate_parser = subparsers.add_parser(
@@ -132,7 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "validate":
-        return _validate_command(args.config, json_output=args.json)
+        return _validate_command(
+            args.config, json_output=args.json, check_cases=args.check_cases
+        )
     if args.command == "generate":
         return _generate_command(
             args.config,
@@ -157,7 +164,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     raise AssertionError(f"unhandled command: {args.command}")
 
 
-def _validate_command(config_path: Path, *, json_output: bool) -> int:
+def _validate_command(
+    config_path: Path, *, json_output: bool, check_cases: bool
+) -> int:
     try:
         config = load_experiment(config_path)
     except ConfigurationError as exc:
@@ -182,23 +191,52 @@ def _validate_command(config_path: Path, *, json_output: bool) -> int:
         return 2
 
     summary = summarize_experiment(config)
+    generated = None
+    if check_cases:
+        try:
+            generated = generate_cases(config)
+        except GenerationError as exc:
+            if json_output:
+                print(
+                    json.dumps(
+                        {
+                            "valid": False,
+                            "path": str(config_path),
+                            "case_generation_checked": True,
+                            "issues": [{"path": "$.cases", "message": str(exc)}],
+                        },
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(f"Case generation failed: {exc}", file=sys.stderr)
+            return 2
+
     if json_output:
-        print(
-            json.dumps(
-                {
-                    "valid": True,
-                    "path": str(config_path),
-                    **summary.to_dict(),
-                },
-                sort_keys=True,
-            )
-        )
+        result = {
+            "valid": True,
+            "path": str(config_path),
+            **summary.to_dict(),
+        }
+        if generated is not None:
+            result["case_generation_checked"] = True
+            result["case_set_sha256"] = generated.sha256
+        print(json.dumps(result, sort_keys=True))
     else:
         print(f"Configuration valid: {config_path}")
         print(f"{summary.conditions} conditions")
         print(f"{summary.generated_cases} generated cases")
         print(f"{summary.measured_attempts} measured attempts")
         print(f"{summary.warmup_attempts} warmup attempts")
+        if generated is not None:
+            print(f"Case generation passed: {len(generated.records)} cases in memory")
+            print(f"Case-set SHA-256: {generated.sha256}")
+            print("No case file written.")
+        else:
+            print(
+                "Case generation not checked; use sor validate <config> --check-cases "
+                "before a live run."
+            )
     return 0
 
 
@@ -306,8 +344,9 @@ def _score_command(
 
 
 def _run_command(config_path: Path, *, json_output: bool) -> int:
+    print("[sor] Preparing experiment and cases...", file=sys.stderr, flush=True)
     try:
-        result = run_experiment(config_path)
+        result = run_experiment(config_path, on_progress=_print_run_progress)
     except (ConfigurationError, GenerationError, RunnerError) as exc:
         if json_output:
             print(
@@ -349,6 +388,55 @@ def _run_command(config_path: Path, *, json_output: bool) -> int:
         if result.gates_configured:
             print(f"Regression gates: {'PASS' if result.gates_passed else 'FAIL'}")
     return 0 if result.gates_passed else 1
+
+
+def _print_run_progress(progress: RunProgress) -> None:
+    """Keep stdout machine-readable while showing bounded live progress."""
+
+    if progress.kind == "start":
+        message = (
+            f"Run {progress.run_id}: {progress.generated_cases} unique cases, "
+            f"{progress.condition_count} conditions, "
+            f"{progress.planned_attempts} requests "
+            f"({progress.planned_measured_attempts} measured + "
+            f"{progress.planned_warmup_attempts} warmup)"
+        )
+    elif progress.kind == "condition":
+        message = (
+            f"Condition {progress.condition_index}/{progress.condition_count}: "
+            f"concurrency={progress.concurrency}, mode={progress.structured_mode} "
+            f"({progress.condition_id})"
+        )
+    elif progress.kind == "attempt":
+        interval = max(1, (progress.planned_attempts + 49) // 50)
+        if (
+            progress.completed_attempts != 1
+            and progress.completed_attempts != progress.planned_attempts
+            and progress.completed_attempts % interval != 0
+        ):
+            return
+        message = (
+            f"{progress.completed_attempts}/{progress.planned_attempts} requests; "
+            f"measured {progress.measured_attempts}/{progress.planned_measured_attempts}, "
+            f"warmup {progress.warmup_attempts}/{progress.planned_warmup_attempts}; "
+            f"condition {progress.condition_index}/{progress.condition_count}; "
+            f"{progress.phase} {progress.case_id}: {progress.outcome}"
+        )
+    elif progress.kind == "waiting":
+        message = (
+            f"Waiting for {progress.phase} responses; "
+            f"{progress.completed_attempts}/{progress.planned_attempts} requests "
+            f"completed, condition {progress.condition_index}/{progress.condition_count}"
+        )
+    elif progress.kind == "summarizing":
+        message = "All requests recorded; calculating summary..."
+    elif progress.kind == "reporting":
+        message = "Summary complete; writing Markdown report..."
+    elif progress.kind == "complete":
+        message = f"Run artifacts complete: {progress.completed_attempts}/{progress.planned_attempts} requests"
+    else:
+        return
+    print(f"[sor] {message}", file=sys.stderr, flush=True)
 
 
 def _summarize_command(run_directory: Path, *, json_output: bool) -> int:

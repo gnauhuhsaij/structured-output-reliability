@@ -26,6 +26,7 @@ CORE_REQUEST_FIELDS = {
     "response_format",
     "seed",
     "stream",
+    "stream_options",
     "temperature",
 }
 RELATIVE_GATE_KINDS = {"max_drop", "max_increase_ratio"}
@@ -306,6 +307,13 @@ def _semantic_issues(config: Mapping[str, Any]) -> list[ValidationIssue]:
 
     slos = config.get("slos", {})
     if not config["run"]["stream"]:
+        if config["run"].get("stream_include_usage", False):
+            issues.append(
+                ValidationIssue(
+                    "$.run.stream_include_usage",
+                    "requires run.stream to be true",
+                )
+            )
         for name in ("max_ttft_ms", "max_tpot_ms"):
             if name in slos:
                 issues.append(

@@ -224,10 +224,13 @@
           "minimum": 0,
           "default": 0
         },
-        "stream": {
-          "type": "boolean",
-          "default": true
-        }
+    "stream": {
+      "type": "boolean",
+      "default": true
+    },
+    "stream_include_usage": {
+      "type": "boolean"
+    }
       }
     },
     "structuredMode": {

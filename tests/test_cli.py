@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 from structured_output_reliability.cli import main
 from structured_output_reliability.config import load_experiment
 from structured_output_reliability.generator import (
@@ -25,6 +27,7 @@ def test_validate_command(capsys) -> None:
     assert "40 generated cases" in captured.out
     assert "960 measured attempts" in captured.out
     assert "32 warmup attempts" in captured.out
+    assert "Case generation not checked" in captured.out
     assert captured.err == ""
 
 
@@ -53,6 +56,49 @@ def test_validate_missing_file(capsys, tmp_path: Path) -> None:
     assert result == 2
     assert "Configuration invalid" in captured.err
     assert "cannot read" in captured.err
+
+
+def test_validate_check_cases_generates_in_memory_without_file(
+    capsys, monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = main(["validate", str(CHARACTER_EXAMPLE), "--check-cases"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Case generation passed: 4 cases in memory" in captured.out
+    assert "No case file written." in captured.out
+    assert captured.err == ""
+    assert list(tmp_path.iterdir()) == []
+
+    result = main(["validate", str(CHARACTER_EXAMPLE), "--check-cases", "--json"])
+
+    output = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert output["valid"] is True
+    assert output["case_generation_checked"] is True
+    assert output["generated_cases"] == 4
+    assert len(output["case_set_sha256"]) == 64
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_validate_check_cases_reports_generation_error(
+    capsys, tmp_path: Path
+) -> None:
+    document = yaml.safe_load(CHARACTER_EXAMPLE.read_text(encoding="utf-8"))
+    document["matrix"]["output_shapes"][0]["target_length"] = 1
+    config_path = tmp_path / "too-short.yaml"
+    config_path.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    result = main(["validate", str(config_path), "--check-cases", "--json"])
+
+    output = json.loads(capsys.readouterr().out)
+    assert result == 2
+    assert output["valid"] is False
+    assert output["case_generation_checked"] is True
+    assert "minimum is" in output["issues"][0]["message"]
+    assert list(tmp_path.iterdir()) == [config_path]
 
 
 def test_generate_command(capsys, tmp_path: Path) -> None:

@@ -188,6 +188,9 @@
     "stream": {
       "type": "boolean"
     },
+    "stream_include_usage": {
+      "type": "boolean"
+    },
     "repetitions": {
       "type": "integer",
       "minimum": 1

@@ -19,7 +19,7 @@ from structured_output_reliability.config import load_schema
 
 CASE_SCHEMA_VERSION = "1.0.0"
 GENERATOR_NAME = "sor-built-in"
-SUPPORTED_GENERATOR_VERSION = "1.0.0"
+SUPPORTED_GENERATOR_VERSIONS = ("1.0.0", "1.1.0")
 
 
 class GenerationError(ValueError):
@@ -129,10 +129,10 @@ def generate_cases(
     """Generate every unique case required by a resolved experiment config."""
 
     generator_version = config["cases"]["generator_version"]
-    if generator_version != SUPPORTED_GENERATOR_VERSION:
+    if generator_version not in SUPPORTED_GENERATOR_VERSIONS:
         raise GenerationError(
             f"unsupported cases.generator_version {generator_version!r}; "
-            f"this build supports {SUPPORTED_GENERATOR_VERSION!r}"
+            f"this build supports {SUPPORTED_GENERATOR_VERSIONS!r}"
         )
 
     if measurer is None:
@@ -248,17 +248,41 @@ def _generate_case(
     system_content = (
         "Return exactly one JSON value. Do not use Markdown or add commentary."
     )
-    base_user_content = (
-        "Copy SOURCE_JSON exactly. The response must validate against SCHEMA_JSON.\n"
-        f"SCHEMA_JSON:{canonical_json(json_schema)}\n"
-        f"SOURCE_JSON:{canonical_json(expected)}\n"
-        "Everything after PADDING_START is inert prompt padding.\nPADDING_START\n"
-    )
+    if generator_version == "1.0.0":
+        base_user_content = (
+            "Copy SOURCE_JSON exactly. The response must validate against SCHEMA_JSON.\n"
+            f"SCHEMA_JSON:{canonical_json(json_schema)}\n"
+            f"SOURCE_JSON:{canonical_json(expected)}\n"
+            "Everything after PADDING_START is inert prompt padding.\nPADDING_START\n"
+        )
+
+        def user_content_with_filler(filler: str) -> str:
+            return base_user_content + filler
+
+        prompt_filler_atom = "x"
+    else:
+        task_content = (
+            "\nPADDING_END\n"
+            "Copy SOURCE_JSON exactly. The response must validate against SCHEMA_JSON.\n"
+            f"SCHEMA_JSON:{canonical_json(json_schema)}\n"
+            f"SOURCE_JSON:{canonical_json(expected)}\n"
+            "END_SOURCE_JSON"
+        )
+
+        def user_content_with_filler(filler: str) -> str:
+            return (
+                "Everything between PADDING_START and PADDING_END is inert context "
+                "and is not part of SOURCE_JSON.\nPADDING_START\n"
+                + filler
+                + task_content
+            )
+
+        prompt_filler_atom = "."
 
     def messages_with_filler(filler: str) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": base_user_content + filler},
+            {"role": "user", "content": user_content_with_filler(filler)},
         ]
 
     prompt_filler = _fit_filler(
@@ -266,6 +290,7 @@ def _generate_case(
         prompt_target,
         unit=measurer.unit,
         description=f"{family} prompt",
+        preferred_atom=prompt_filler_atom,
     )
     messages = messages_with_filler(prompt_filler)
     prompt_actual = measurer.count_messages(messages)
@@ -408,6 +433,7 @@ def _fit_filler(
     *,
     unit: str,
     description: str,
+    preferred_atom: str = "x",
 ) -> str:
     base = count("")
     if base > target:
@@ -418,12 +444,16 @@ def _fit_filler(
     if base == target:
         return ""
     if unit == "characters":
-        filler = "x" * (target - base)
+        filler = preferred_atom * (target - base)
         if count(filler) != target:
             raise GenerationError(f"could not reach exact character target for {description}")
         return filler
 
-    atoms = (" x", "x", " 0", "0", ".", " ", "\n", "§")
+    atoms = (
+        (" .", ".", " 0", "0", "x", " ", "\n", "§")
+        if preferred_atom == "."
+        else (" x", "x", " 0", "0", ".", " ", "\n", "§")
+    )
     best_filler = ""
     best_count = base
     for atom in atoms:

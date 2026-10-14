@@ -16,6 +16,7 @@ from structured_output_reliability.cli import main
 from structured_output_reliability.config import load_experiment, load_schema
 from structured_output_reliability.generator import canonical_json, generate_cases
 from structured_output_reliability.runner import (
+    RunProgress,
     RunnerError,
     build_conditions,
     build_request_body,
@@ -24,6 +25,7 @@ from structured_output_reliability.runner import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHARACTER_EXAMPLE = REPOSITORY_ROOT / "examples" / "character-experiment.yaml"
+OPENAI_SMOKE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-smoke.yaml"
 
 
 class _MockState:
@@ -176,6 +178,7 @@ def _chat_response(body: dict[str, Any], *, content: str | None = None) -> dict[
 def _expected_from_request(body: dict[str, Any]) -> Any:
     user_content = body["messages"][-1]["content"]
     source = user_content.split("SOURCE_JSON:", 1)[1]
+    source = source.split("\nEND_SOURCE_JSON", 1)[0]
     source = source.split("\nEverything after PADDING_START", 1)[0]
     return json.loads(source)
 
@@ -244,7 +247,8 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
         )
         exit_code = main(["run", str(config_path), "--json"])
 
-    output = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
     run_directory = Path(output["run_directory"])
     assert exit_code == 0
     assert output["completed"] is True
@@ -254,6 +258,11 @@ def test_run_command_executes_all_cases_with_fixed_concurrency(
     assert output["request_failures"] == 0
     assert output["gates_configured"] == 0
     assert output["gates_passed"] is True
+    assert "[sor] Preparing experiment and cases" in captured.err
+    assert "Condition 1/1" in captured.err
+    assert "5/5 requests" in captured.err
+    assert "calculating summary" in captured.err
+    assert "writing Markdown report" in captured.err
     assert state.max_active == 2
     assert len(state.bodies) == 5
     assert all("response_format" in body for body in state.bodies)
@@ -342,6 +351,69 @@ def test_streaming_run_records_ttft_tpot_and_events(tmp_path: Path) -> None:
         "token_count_source": "server",
         "tokenizer": None,
     }
+
+
+def test_progress_reports_waiting_and_completed_attempts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "structured_output_reliability.runner.PROGRESS_HEARTBEAT_SECONDS", 0.01
+    )
+    progress: list[RunProgress] = []
+    with mock_openai_server() as (base_url, _):
+        config_path = _write_config(
+            tmp_path,
+            base_url=base_url,
+            model="timeout",
+            timeout_seconds=1,
+        )
+        result = run_experiment(config_path, on_progress=progress.append)
+
+    assert result.measured_attempts == 1
+    assert [event.kind for event in progress if event.kind != "waiting"] == [
+        "start",
+        "condition",
+        "attempt",
+        "summarizing",
+        "reporting",
+        "complete",
+    ]
+    assert any(event.kind == "waiting" and event.phase == "measure" for event in progress)
+    attempt = next(event for event in progress if event.kind == "attempt")
+    assert attempt.completed_attempts == attempt.planned_attempts == 1
+    assert attempt.measured_attempts == 1
+    assert attempt.outcome == "exact_correct"
+
+
+def test_openai_smoke_workload_runs_with_usage_streaming_against_mock(
+    tmp_path: Path,
+) -> None:
+    with mock_openai_server() as (base_url, state):
+        config = load_experiment(OPENAI_SMOKE_EXAMPLE)
+        config["endpoint"].update(
+            {"base_url": base_url, "model": "stream", "api_key_env": None}
+        )
+        config["output"]["root"] = str(tmp_path / "runs")
+        config_path = tmp_path / "openai-smoke-mock.yaml"
+        config_path.write_text(
+            yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        result = run_experiment(config_path)
+
+    assert result.condition_count == 4
+    assert result.measured_attempts == 32
+    assert result.warmup_attempts == 4
+    assert result.request_failures == 0
+    assert len(state.bodies) == 36
+    assert all(
+        body["stream_options"] == {"include_usage": True}
+        for body in state.bodies
+    )
+    attempts = _jsonl(result.run_directory / "responses.jsonl")
+    assert all(attempt["score"]["exact_correct"] for attempt in attempts)
+    assert all(attempt["tokens"]["token_count_source"] == "server" for attempt in attempts)
+    assert all(attempt["timing"]["tpot_ns"] is not None for attempt in attempts)
 
 
 def test_extra_body_mode_inserts_a_fresh_case_schema() -> None:
@@ -513,4 +585,32 @@ def test_missing_named_api_key_fails_before_creating_run_directory(
     with pytest.raises(RunnerError, match="SOR_MISSING_API_KEY"):
         run_experiment(config_path)
 
+    assert not (tmp_path / "runs").exists()
+
+
+@pytest.mark.parametrize(
+    ("bad_key", "message"),
+    [
+        ("\u201csk-test\u201d", "non-ASCII characters"),
+        ("'sk-test'", "quotation mark"),
+        ("sk-test\n", "whitespace"),
+    ],
+)
+def test_malformed_api_key_fails_before_creating_run_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    bad_key: str,
+    message: str,
+) -> None:
+    monkeypatch.setenv("SOR_MALFORMED_API_KEY", bad_key)
+    config_path = _write_config(
+        tmp_path,
+        base_url="http://127.0.0.1:1/v1",
+        api_key_env="SOR_MALFORMED_API_KEY",
+    )
+
+    with pytest.raises(RunnerError, match=message) as error:
+        run_experiment(config_path)
+
+    assert bad_key not in str(error.value)
     assert not (tmp_path / "runs").exists()

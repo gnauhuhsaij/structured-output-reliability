@@ -18,9 +18,12 @@ from structured_output_reliability.generator import (
     generate_cases,
     write_cases_jsonl,
 )
+from structured_output_reliability.runner import build_conditions, build_request_body
+from structured_output_reliability.scorer import score_response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHARACTER_EXAMPLE = REPOSITORY_ROOT / "examples" / "character-experiment.yaml"
+OPENAI_SMOKE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-smoke.yaml"
 
 
 class CharacterLikeTokenMeasurer:
@@ -130,6 +133,51 @@ def test_too_small_length_target_is_actionable() -> None:
 
     with pytest.raises(GenerationError, match="minimum is"):
         generate_cases(config)
+
+
+def test_openai_smoke_cases_are_generatable_and_score_correctly() -> None:
+    config = load_experiment(OPENAI_SMOKE_EXAMPLE)
+    generated = generate_cases(config)
+    conditions = build_conditions(config, generated)
+
+    assert [case["family"] for case in generated.records] == [
+        "flat_object",
+        "nested_object",
+        "array_object",
+        "mixed_types",
+    ]
+    assert len(conditions) == 4
+
+    case_validator = Draft202012Validator(load_schema("case"))
+    for case in generated.records:
+        case_validator.validate(case)
+        Draft202012Validator(case["json_schema"]).validate(case["expected"])
+        assert case["prompt_length"]["actual"] == 2048
+        assert case["expected_output_length"]["actual"] == 256
+        assert case["generator"]["version"] == "1.1.0"
+        user_content = case["messages"][-1]["content"]
+        assert user_content.index("PADDING_END") < user_content.index("SOURCE_JSON:")
+        assert user_content.endswith("END_SOURCE_JSON")
+        assert "x" not in user_content.split("PADDING_START\n", 1)[1].split(
+            "\nPADDING_END", 1
+        )[0]
+        score = score_response(case, canonical_json(case["expected"]))
+        assert score["exact_correct"] is True
+        assert score["correct_fields"] == score["total_fields"]
+
+        for condition in conditions:
+            body = build_request_body(condition, case)
+            assert body["max_completion_tokens"] == 512
+            assert body["stream_options"] == {"include_usage": True}
+            if condition["structured_mode"]["type"] == "response_format":
+                sent_schema = body["response_format"]["json_schema"]["schema"]
+                assert "$schema" not in sent_schema
+                assert sent_schema == {
+                    key: value for key, value in case["json_schema"].items()
+                    if key != "$schema"
+                }
+            else:
+                assert "response_format" not in body
 
 
 def test_unknown_generator_version_is_rejected() -> None:

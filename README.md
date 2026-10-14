@@ -45,11 +45,20 @@ Configuration valid: examples/experiment.yaml
 40 generated cases
 960 measured attempts
 32 warmup attempts
+Case generation not checked; use sor validate <config> --check-cases before a live run.
 ```
 
-Use `--json` for machine-readable output. Validation is static and does not
-contact the configured endpoint or require its API-key environment variable to
-be set. Runtime readiness is checked by `sor run`.
+Use `--json` for machine-readable output. Plain validation is static. Add
+`--check-cases` to generate and validate every case in memory without saving a
+file or contacting the endpoint:
+
+```bash
+sor validate examples/openai-smoke.yaml --check-cases
+```
+
+Neither validation mode needs the API-key environment variable. Token-length
+case generation may need the optional tokenizer dependency. Runtime endpoint
+readiness is checked by `sor run`.
 
 Generate a small offline workload with one case from every built-in family:
 
@@ -62,6 +71,28 @@ the canonical case set. Generation is deterministic: the resolved
 configuration and root seed produce the same records, IDs, order, and hash.
 Existing files are not replaced unless `--force` is supplied. This command also
 does not contact the configured model endpoint.
+
+After the offline check, set `OPENAI_API_KEY` in the same shell to run the
+included live experiment:
+
+```bash
+read -r -s "OPENAI_API_KEY?Paste the raw API key (no quotes): "
+echo
+export OPENAI_API_KEY
+sor run examples/openai-smoke.yaml
+```
+
+The hidden prompt keeps the key out of shell history. Paste only the raw key;
+quotation marks (including smart quotes) and trailing whitespace are not part
+of it. The runner rejects malformed credential text before creating a run.
+
+The smoke experiment uses generator version `1.1.0`, which places inert prompt
+padding before the source JSON so it cannot look like a continuation of the
+expected output. Version `1.0.0` remains available for reproducing older runs.
+It also sets `run.stream_include_usage: true` to request the final streaming
+usage chunk used for token throughput and TPOT. Some OpenAI-compatible services
+may not support that option; omit it for those endpoints, in which case missing
+token metrics remain unavailable rather than zero.
 
 Character-length experiments work with the base installation. Exact token
 targeting uses the configured Hugging Face tokenizer and its chat template, so
@@ -105,6 +136,12 @@ sor run examples/character-experiment.yaml
 local service with no authentication, or set it to an environment-variable
 name such as `OPENAI_API_KEY` for a service that requires a Bearer token. Never
 put the key itself in YAML.
+
+While running, `sor` prints progress to stderr: total cases and attempts,
+current matrix condition, completed warmup and measured attempts, each reported
+case's outcome, and a waiting heartbeat after 10 seconds without a completed
+request. Small runs show every attempt; larger runs show about 50 progress
+checkpoints. With `--json`, stdout remains a single machine-readable result.
 
 The runner uses closed-loop fixed concurrency, executes warmup and measured
 attempts, supports streaming SSE and non-streaming responses, measures E2E

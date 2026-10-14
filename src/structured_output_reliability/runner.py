@@ -13,8 +13,8 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator, Mapping, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +45,7 @@ CONFIGURATION_CONTRACT_VERSION = "1.0.0"
 METRIC_CONTRACT_VERSION = "1.0.0"
 CONDITION_SCHEMA_VERSION = "1.0.0"
 ATTEMPT_SCHEMA_VERSION = "1.0.0"
+PROGRESS_HEARTBEAT_SECONDS = 10.0
 
 
 class RunnerError(RuntimeError):
@@ -64,6 +65,29 @@ class RunResult:
     report_path: Path
     gates_configured: int
     gates_passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunProgress:
+    """A non-sensitive snapshot for terminal or programmatic progress reporting."""
+
+    kind: str
+    run_id: str
+    completed_attempts: int
+    planned_attempts: int
+    generated_cases: int
+    measured_attempts: int
+    planned_measured_attempts: int
+    warmup_attempts: int
+    planned_warmup_attempts: int
+    condition_index: int
+    condition_count: int
+    condition_id: str | None = None
+    concurrency: int | None = None
+    structured_mode: str | None = None
+    phase: str | None = None
+    case_id: str | None = None
+    outcome: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +137,11 @@ class _JsonlWriter:
         self.close()
 
 
-def run_experiment(config_path: str | Path) -> RunResult:
+def run_experiment(
+    config_path: str | Path,
+    *,
+    on_progress: Callable[[RunProgress], None] | None = None,
+) -> RunResult:
     """Run every configured condition and preserve terminal attempt records."""
 
     source_path = Path(config_path)
@@ -159,6 +187,39 @@ def run_experiment(config_path: str | Path) -> RunResult:
     expected_measured = len(conditions) * config["cases"]["count"] * config["run"]["repetitions"]
     expected_warmup = len(conditions) * config["run"]["warmup_requests_per_condition"]
 
+    def emit_progress(
+        kind: str,
+        condition_index: int,
+        condition: Mapping[str, Any] | None = None,
+        *,
+        phase: str | None = None,
+        case_id: str | None = None,
+        outcome: str | None = None,
+    ) -> None:
+        if on_progress is None:
+            return
+        on_progress(
+            RunProgress(
+                kind=kind,
+                run_id=run_id,
+                completed_attempts=measured_attempts + warmup_attempts,
+                planned_attempts=expected_measured + expected_warmup,
+                generated_cases=len(generated.records),
+                measured_attempts=measured_attempts,
+                planned_measured_attempts=expected_measured,
+                warmup_attempts=warmup_attempts,
+                planned_warmup_attempts=expected_warmup,
+                condition_index=condition_index,
+                condition_count=len(conditions),
+                condition_id=condition["condition_id"] if condition else None,
+                concurrency=condition["concurrency"] if condition else None,
+                structured_mode=condition["structured_mode"]["id"] if condition else None,
+                phase=phase,
+                case_id=case_id,
+                outcome=outcome,
+            )
+        )
+
     manifest = {
         "manifest_version": "1.0.0",
         "run_id": run_id,
@@ -184,11 +245,13 @@ def run_experiment(config_path: str | Path) -> RunResult:
     try:
         _write_run_inputs(source_path, config, generated, conditions, run_directory)
         _atomic_write_json(run_directory / "manifest.json", manifest)
+        emit_progress("start", 0)
         with _JsonlWriter(
             run_directory / "responses.jsonl",
             flush_every=config["output"]["flush_every"],
         ) as writer:
-            for condition in conditions:
+            for condition_index, condition in enumerate(conditions, start=1):
+                emit_progress("condition", condition_index, condition)
                 cases = select_condition_cases(generated.records, condition)
                 records = _run_condition(
                     run_id=run_id,
@@ -198,6 +261,13 @@ def run_experiment(config_path: str | Path) -> RunResult:
                     include_raw_response=config["output"]["include_raw_response"],
                     include_stream_events=config["output"]["include_stream_events"],
                     local_tokenizer=local_tokenizer,
+                    on_wait=(
+                        lambda phase: emit_progress(
+                            "waiting", condition_index, condition, phase=phase
+                        )
+                        if on_progress is not None
+                        else None
+                    ),
                 )
                 for record in records:
                     writer.write(record)
@@ -207,6 +277,14 @@ def run_experiment(config_path: str | Path) -> RunResult:
                         warmup_attempts += 1
                     if not record["score"]["request_success"]:
                         request_failures += 1
+                    emit_progress(
+                        "attempt",
+                        condition_index,
+                        condition,
+                        phase=record["phase"],
+                        case_id=record["case_id"],
+                        outcome=record["score"]["primary_outcome"],
+                    )
 
         run_complete = (
             measured_attempts == expected_measured
@@ -223,6 +301,7 @@ def run_experiment(config_path: str | Path) -> RunResult:
             }
         )
         _atomic_write_json(run_directory / "manifest.json", manifest)
+        emit_progress("summarizing", len(conditions), conditions[-1])
         summary_result = summarize_run(run_directory)
     except BaseException:
         manifest.update(
@@ -243,12 +322,14 @@ def run_experiment(config_path: str | Path) -> RunResult:
 
     if not manifest["run_complete"]:
         raise RunnerError(f"run ended without every planned attempt: {run_directory}")
+    emit_progress("reporting", len(conditions), conditions[-1])
     try:
         report_result = generate_report(
             run_directory, candidate_summary=summary_result.summary
         )
     except ReportingError as exc:
         raise RunnerError(f"run completed but report generation failed: {exc}") from exc
+    emit_progress("complete", len(conditions), conditions[-1])
     return RunResult(
         run_id=run_id,
         run_directory=run_directory,
@@ -295,6 +376,8 @@ def build_conditions(
             "stream": config["run"]["stream"],
             "repetitions": config["run"]["repetitions"],
         }
+        if config["run"].get("stream_include_usage", False):
+            comparison_payload["stream_include_usage"] = True
         if "slos" in config:
             comparison_payload["slos"] = copy.deepcopy(config["slos"])
         comparison_key = "cmp_" + _sha256(comparison_payload)[:16]
@@ -319,6 +402,8 @@ def build_conditions(
             "execution_order_seed": execution_order_seed,
             "case_set_sha256": case_set_sha256,
         }
+        if config["run"].get("stream_include_usage", False):
+            record["stream_include_usage"] = True
         if "slos" in config:
             record["slos"] = copy.deepcopy(config["slos"])
         record["condition_id"] = "cond_" + _sha256(record)[:16]
@@ -358,15 +443,19 @@ def build_request_body(
     }
     if condition["request_seed"] is not None:
         body["seed"] = condition["request_seed"]
+    if condition.get("stream_include_usage", False):
+        body["stream_options"] = {"include_usage": True}
 
     mode = condition["structured_mode"]
     if mode["type"] == "response_format":
+        response_schema = copy.deepcopy(case["json_schema"])
+        response_schema.pop("$schema", None)
         body["response_format"] = {
             "type": "json_schema",
             "json_schema": {
                 "name": case["case_id"],
                 "strict": mode["strict"],
-                "schema": copy.deepcopy(case["json_schema"]),
+                "schema": response_schema,
             },
         }
     elif mode["type"] == "extra_body":
@@ -389,6 +478,7 @@ def _run_condition(
     include_raw_response: bool,
     include_stream_events: bool,
     local_tokenizer: HuggingFaceLengthMeasurer | None,
+    on_wait: Callable[[str], None] | None,
 ) -> Iterator[dict[str, Any]]:
     sequence_index = 0
 
@@ -411,6 +501,7 @@ def _run_condition(
             include_raw_response=include_raw_response,
             include_stream_events=include_stream_events,
             local_tokenizer=local_tokenizer,
+            on_wait=on_wait,
         )
         yield from batch
         sequence_index += len(warmup_cases)
@@ -437,6 +528,7 @@ def _run_condition(
             include_raw_response=include_raw_response,
             include_stream_events=include_stream_events,
             local_tokenizer=local_tokenizer,
+            on_wait=on_wait,
         )
         yield from batch
         sequence_index += len(ordered_cases)
@@ -453,6 +545,7 @@ def _execute_batch(
     include_raw_response: bool,
     include_stream_events: bool,
     local_tokenizer: HuggingFaceLengthMeasurer | None,
+    on_wait: Callable[[str], None] | None,
 ) -> Iterator[dict[str, Any]]:
     futures: list[Future[dict[str, Any]]] = []
     next_sequence = first_sequence_index
@@ -480,8 +573,19 @@ def _execute_batch(
                     local_tokenizer=local_tokenizer,
                 )
             )
-        for future in as_completed(futures):
-            yield future.result()
+        pending = set(futures)
+        while pending:
+            done, pending = wait(
+                pending,
+                timeout=PROGRESS_HEARTBEAT_SECONDS if on_wait is not None else None,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                if on_wait is not None:
+                    on_wait(phase)
+                continue
+            for future in done:
+                yield future.result()
 
 
 def _execute_attempt(
@@ -1060,6 +1164,21 @@ def _load_api_key(endpoint: Mapping[str, Any]) -> str | None:
     if not value:
         raise RunnerError(
             f"endpoint credential environment variable {variable_name!r} is not set"
+        )
+    if not value.isascii():
+        raise RunnerError(
+            f"endpoint credential environment variable {variable_name!r} contains "
+            "non-ASCII characters (possibly smart quotes); paste the key without quotes"
+        )
+    if value.startswith(("'", '"')) or value.endswith(("'", '"')):
+        raise RunnerError(
+            f"endpoint credential environment variable {variable_name!r} includes "
+            "a quotation mark; paste the key without quotes"
+        )
+    if any(character.isspace() for character in value):
+        raise RunnerError(
+            f"endpoint credential environment variable {variable_name!r} contains "
+            "whitespace; paste the key without surrounding spaces or newlines"
         )
     return value
 

@@ -36,6 +36,19 @@ class ReportResult:
     unmatched_baseline_conditions: int
 
 
+_DIMENSION_HEADERS = (
+    "Condition",
+    "Concurrency",
+    "Prompt length",
+    "Output length",
+    "Max tokens",
+    "Temperature",
+    "Seed",
+    "Mode",
+)
+_DIMENSION_ALIGNMENT = ("---", "---:", "---:", "---:", "---:", "---:", "---:", "---")
+
+
 def generate_report(
     run_directory: str | Path,
     *,
@@ -243,6 +256,16 @@ def render_markdown_report(
         f"| Terminal attempts | {sum(c['terminal_attempts'] for c in candidate['conditions'])} |",
         f"| Configured gates | {len(gates)} |",
     ]
+    if candidate["conditions"]:
+        fixed = candidate["conditions"][0]["dimensions"]
+        lines.extend(
+            [
+                f"| Model | `{_escape(fixed['model'])}` |",
+                f"| Stream | {str(fixed['stream']).lower()} |",
+                f"| Repetitions per case | {fixed['repetitions']} |",
+                f"| Quantization | {_escape(fixed['quantization']) if fixed['quantization'] is not None else '—'} |",
+            ]
+        )
     if baseline is not None:
         lines.extend(
             [
@@ -255,8 +278,10 @@ def render_markdown_report(
 
     lines.extend(["", "## Correctness and reliability", ""])
     lines.extend(_condition_table(candidate["conditions"]))
-    lines.extend(["", "## Timing and throughput", ""])
-    lines.extend(_performance_table(candidate["conditions"]))
+    lines.extend(["", "## Timing and throughput", "", "### Latency", ""])
+    lines.extend(_latency_table(candidate["conditions"]))
+    lines.extend(["", "### Throughput", ""])
+    lines.extend(_throughput_table(candidate["conditions"]))
     lines.extend(["", "## Outcome counts", ""])
     lines.extend(_outcome_table(candidate["conditions"]))
     lines.extend(["", "## Regression gates", ""])
@@ -289,33 +314,24 @@ def render_markdown_report(
 
 
 def _condition_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
-    lines = [
-        "| Condition | Dimensions | Request success | JSON parse | Schema valid | Exact correct | Field accuracy (micro) | Field accuracy (macro) | Consistency |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    lines = _table_header(
+        (
+            "Request success",
+            "JSON parse",
+            "Schema valid",
+            "Exact correct",
+            "Field accuracy (micro)",
+            "Field accuracy (macro)",
+            "Consistency",
+        )
+    )
     for condition in conditions:
-        dimensions = condition["dimensions"]
-        quantization = (
-            f"; quant={dimensions['quantization']}"
-            if dimensions["quantization"] is not None
-            else ""
-        )
-        label = (
-            f"model={dimensions['model']}; c={dimensions['concurrency']}; "
-            f"prompt={dimensions['prompt_length']} {dimensions['prompt_length_unit']}; "
-            f"output={dimensions['output_length']} {dimensions['output_length_unit']}; "
-            f"max={dimensions['max_completion_tokens']}; temp={dimensions['temperature']}; "
-            f"seed={dimensions['request_seed']}; mode={dimensions['structured_mode']}; "
-            f"stream={dimensions['stream']}; reps={dimensions['repetitions']}"
-            f"{quantization}"
-        )
         metrics = condition["metrics"]
         lines.append(
             "| "
             + " | ".join(
-                [
-                    f"`{condition['condition_id']}`",
-                    _escape(label),
+                _dimension_cells(condition)
+                + [
                     _format_metric(metrics["request_success_rate"], percent=True),
                     _format_metric(metrics["json_parse_rate"], percent=True),
                     _format_metric(metrics["schema_valid_rate"], percent=True),
@@ -330,24 +346,41 @@ def _condition_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
-def _performance_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
-    lines = [
-        "| Condition | Median E2E | p95 E2E | Median TTFT | p95 TTFT | Median TPOT | p95 TPOT | Attempt throughput | Request throughput | Output-token throughput | Quality goodput |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+def _latency_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines = _table_header(
+        ("Median E2E", "p95 E2E", "Median TTFT", "p95 TTFT", "Median TPOT", "p95 TPOT")
+    )
     for condition in conditions:
         metrics = condition["metrics"]
         lines.append(
             "| "
             + " | ".join(
-                [
-                    f"`{condition['condition_id']}`",
+                _dimension_cells(condition)
+                + [
                     _format_metric(metrics["median_e2e_latency_ms"], suffix=" ms"),
                     _format_metric(metrics["p95_e2e_latency_ms"], suffix=" ms"),
                     _format_metric(metrics["median_ttft_ms"], suffix=" ms"),
                     _format_metric(metrics["p95_ttft_ms"], suffix=" ms"),
                     _format_metric(metrics["median_tpot_ms"], suffix=" ms"),
                     _format_metric(metrics["p95_tpot_ms"], suffix=" ms"),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _throughput_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines = _table_header(
+        ("Attempt throughput", "Request throughput", "Output-token throughput", "Quality goodput")
+    )
+    for condition in conditions:
+        metrics = condition["metrics"]
+        lines.append(
+            "| "
+            + " | ".join(
+                _dimension_cells(condition)
+                + [
                     _format_metric(metrics["attempt_throughput_rps"], suffix=" req/s"),
                     _format_metric(metrics["request_throughput_rps"], suffix=" req/s"),
                     _format_metric(
@@ -359,6 +392,30 @@ def _performance_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
             + " |"
         )
     return lines
+
+
+def _table_header(metric_headers: Sequence[str]) -> list[str]:
+    headers = (*_DIMENSION_HEADERS, *metric_headers)
+    alignment = (*_DIMENSION_ALIGNMENT, *("---:" for _ in metric_headers))
+    return [
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join(alignment) + "|",
+    ]
+
+
+def _dimension_cells(condition: Mapping[str, Any]) -> list[str]:
+    dimensions = condition["dimensions"]
+    seed = dimensions["request_seed"]
+    return [
+        f"`{condition['condition_id']}`",
+        str(dimensions["concurrency"]),
+        f"{dimensions['prompt_length']} {dimensions['prompt_length_unit']}",
+        f"{dimensions['output_length']} {dimensions['output_length_unit']}",
+        str(dimensions["max_completion_tokens"]),
+        _format_number(dimensions["temperature"]),
+        str(seed) if seed is not None else "—",
+        _escape(dimensions["structured_mode"]),
+    ]
 
 
 def _outcome_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:

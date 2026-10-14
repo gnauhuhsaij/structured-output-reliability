@@ -103,6 +103,14 @@ def test_null_api_key_allows_unauthenticated_local_service() -> None:
     assert resolved["endpoint"]["api_key_env"] is None
 
 
+def test_stream_usage_requires_streaming() -> None:
+    document = minimal_config()
+    document["run"].update({"stream": False, "stream_include_usage": True})
+
+    with pytest.raises(ConfigurationError, match="stream_include_usage"):
+        validate_experiment(document)
+
+
 def test_matrix_expansion_uses_normative_order() -> None:
     config = load_experiment(REPOSITORY_ROOT / "examples" / "experiment.yaml")
 

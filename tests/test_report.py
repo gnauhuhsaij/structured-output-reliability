@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import pytest
@@ -187,3 +188,56 @@ def test_markdown_report_shows_counts_unavailable_values_and_gate_status() -> No
     assert "100.00% (1/1)" in markdown
     assert "| — |" in markdown
     assert "exact_correct=1" in markdown
+
+
+def test_report_uses_separate_condition_columns_in_metric_tables() -> None:
+    first = _condition(condition_id="cond_first", comparison_key="cmp_first", exact=1)
+    second = copy.deepcopy(first)
+    second["condition_id"] = "cond_second"
+    second["comparison_key"] = "cmp_second"
+    second["dimensions"]["concurrency"] = 4
+    second["dimensions"]["structured_mode"] = "prompt_only"
+    candidate = _summary("candidate", first)
+    candidate["conditions"].append(second)
+    candidate["condition_count"] = 2
+
+    markdown = render_markdown_report(
+        config={"name": "report-demo", "gates": []},
+        candidate=candidate,
+        baseline=None,
+        baseline_directory=None,
+        gate_results=[],
+        gates_passed=True,
+        comparison={"matched": 0, "unmatched_candidate": 0, "unmatched_baseline": 0},
+    )
+
+    assert "| Model | `mock` |" in markdown
+    assert "### Latency" in markdown
+    assert "### Throughput" in markdown
+    assert "| Dimensions |" not in markdown
+    for heading in (
+        "## Correctness and reliability",
+        "### Latency",
+        "### Throughput",
+    ):
+        section = markdown.split(f"{heading}\n\n", 1)[1].split("\n\n", 1)[0]
+        rows = [line.strip("|").split("|") for line in section.splitlines()]
+        headers = [cell.strip() for cell in rows[0]]
+        assert headers[:8] == [
+            "Condition",
+            "Concurrency",
+            "Prompt length",
+            "Output length",
+            "Max tokens",
+            "Temperature",
+            "Seed",
+            "Mode",
+        ]
+        assert len(rows) == 4
+        assert all(len(row) == len(headers) for row in rows)
+        assert [cell.strip() for cell in rows[2][:8]] == [
+            "`cond_first`", "1", "128 characters", "32 characters", "48", "0", "42", "json_schema"
+        ]
+        assert [cell.strip() for cell in rows[3][:8]] == [
+            "`cond_second`", "4", "128 characters", "32 characters", "48", "0", "42", "prompt_only"
+        ]
