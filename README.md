@@ -323,6 +323,10 @@ The GitHub Actions workflow tests Python 3.11 and 3.14, runs the end-to-end
 smoke test, builds the wheel and source distribution, and verifies the Docker
 image.
 
+## License
+
+MIT. See [`LICENSE`](LICENSE).
+
 ## Contracts
 
 - [`DESIGN.md`](DESIGN.md) freezes the MVP scope.

@@ -8,8 +8,10 @@ version = "0.1.0"
 description = "Reproducible structured-output reliability testing under load"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-  { name = "gnauhuhsaij" },
+  { name = "Jiashu Huang" },
 ]
 dependencies = [
   "jsonschema[format-nongpl]>=4.26,<5",
@@ -40,6 +42,8 @@ include = [
   "/.dockerignore",
   "/tests",
   "/README.md",
+  "/LICENSE",
+  "/RELEASE_NOTES.md",
   "/RESULTS.md",
   "/STRESS_PLAN.md",
   "/STRESS_RESULTS.md",
