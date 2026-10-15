@@ -1,110 +1,45 @@
 # Structured Output Reliability
 
-Structured Output Reliability is a small, reproducible regression tool for
-measuring whether an OpenAI-compatible model service continues to produce
-correct structured output under load.
+**A reproducible CLI for testing whether an OpenAI-compatible model service still returns correct JSON under load.**
 
-The project is currently implementing its v0.1 MVP. It can validate an
-experiment file, deterministically expand its test matrix, generate
-self-contained cases, execute them against an OpenAI-compatible Chat
-Completions endpoint under fixed concurrency, and strictly score every saved
-assistant response. It also aggregates condition-level correctness,
-consistency, latency, throughput, goodput, and confidence intervals offline.
-Every completed run also receives a Markdown report, and configured regression
-gates can fail a CI command without changing the run's completed status.
-Reports also include a supplementary non-padding field accuracy so synthetic
-length-filling errors can be distinguished from errors in task fields; strict
-exact correctness and quality goodput remain unchanged.
+`sor` generates deterministic cases, runs them across a YAML-defined matrix,
+and reports structured-output correctness alongside latency and throughput.
+It is a focused regression tool, not a general-purpose model benchmark.
 
-## Reproducible experiments
+At a glance:
 
-The YAML files below are reusable experiment configurations, not a claim that
-every supported matrix dimension has already been evaluated. Each live
-experiment changes selected dimensions and holds the others fixed so its
-comparisons remain interpretable. Automated tests in `tests/` instead check
-that the CLI and scoring code work; they are not model-service findings.
+- **Vary:** concurrency, prompt/output length, temperature/seed, and
+  structured-output mode.
+- **Measure:** request success, JSON/Schema validity, field and exact-value
+  correctness, repeat consistency, latency, TTFT, TPOT, throughput, and
+  quality goodput.
+- **Keep:** raw JSONL responses, JSON/CSV summaries, a Markdown report, and
+  confidence intervals.
 
-| Experiment | Question and varied conditions | Status | Evidence |
-|---|---|---|---|
-| Five-run baseline | How do concurrency (1 vs. 4) and output mode (prompt-only vs. strict JSON Schema) relate to reliability and performance for the same 24 cases? | Completed: five sequential runs, 960 measured attempts | [Config](examples/openai-baseline.yaml) · [Results and limitations](RESULTS.md) |
-| Load-stress pilot | What happens to exact correctness and quality goodput at concurrency 1 vs. 8 in JSON Schema mode? Prompt-only is a secondary comparator; the other settings are fixed. | Completed: one run, 768 measured attempts | [Config](examples/openai-stress.yaml) · [Plan](STRESS_PLAN.md) · [Results and limitations](STRESS_RESULTS.md) |
+**Start here:** [Quick start](#quick-start) · [Example findings](#reproducible-experiments) · [CLI workflows](#cli-workflows) · [Metric definitions](METRICS.md)
 
-The baseline observed 960/960 exactly correct responses. Its concurrency-4
-conditions had higher request throughput than concurrency-1 conditions, but
-the small, sequential sample does not establish a general performance or
-reliability effect. The stress pilot observed 15 exact-value failures in
-synthetic padding, all in JSON Schema mode; it did not show a Schema violation
-or a request failure. It uses longer prompts and outputs but the same schema
-families and field/path counts, so it is primarily a serving-load test, not a
-test of harder extraction logic.
+## Quick start
 
-When adding a completed experiment, publish its question, YAML, case-set
-hash, condition matrix, request counts, analysis method, aggregate results,
-and limitations. Label offline-validated or planned configurations separately
-until live responses have actually been collected. Keep API keys and raw
-request/response artifacts out of Git; `runs/` is ignored.
-
-## Development setup
+Install from a checkout and run the end-to-end smoke test. The smoke test uses
+a temporary local OpenAI-compatible server; it needs no API key or external
+model and removes its temporary run directory after success.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-```
-
-Run the deterministic end-to-end smoke test with no API key or external model:
-
-```bash
 python scripts/smoke_test.py
 ```
 
-It starts a temporary local OpenAI-compatible endpoint and verifies the complete
-path from YAML validation through request execution, scoring, aggregation, and
-Markdown reporting. The temporary run directory is removed after success.
-
-Validate the included experiment:
-
-```bash
-sor validate examples/experiment.yaml
-```
-
-Expected output:
-
-```text
-Configuration valid: examples/experiment.yaml
-16 conditions
-40 generated cases
-960 measured attempts
-32 warmup attempts
-Case generation not checked; use sor validate <config> --check-cases before a live run.
-```
-
-Use `--json` for machine-readable output. Plain validation is static. Add
-`--check-cases` to generate and validate every case in memory without saving a
-file or contacting the endpoint:
+Check that the included live experiment can generate *all* its cases, without
+writing a case file or contacting the endpoint:
 
 ```bash
 sor validate examples/openai-smoke.yaml --check-cases
 ```
 
-Neither validation mode needs the API-key environment variable. Token-length
-case generation may need the optional tokenizer dependency. Runtime endpoint
-readiness is checked by `sor run`.
-
-Generate a small offline workload with one case from every built-in family:
-
-```bash
-sor generate examples/character-experiment.yaml --output artifacts/cases.jsonl
-```
-
-The command writes one complete case per line and prints the full SHA-256 of
-the canonical case set. Generation is deterministic: the resolved
-configuration and root seed produce the same records, IDs, order, and hash.
-Existing files are not replaced unless `--force` is supplied. This command also
-does not contact the configured model endpoint.
-
-After the offline check, set `OPENAI_API_KEY` in the same shell to run the
-included live experiment:
+To run it against the configured OpenAI-compatible service, set the key in the
+same shell and then execute the experiment:
 
 ```bash
 read -r -s "OPENAI_API_KEY?Paste the raw API key (no quotes): "
@@ -113,126 +48,76 @@ export OPENAI_API_KEY
 sor run examples/openai-smoke.yaml
 ```
 
-The hidden prompt keeps the key out of shell history. Paste only the raw key;
-quotation marks (including smart quotes) and trailing whitespace are not part
-of it. The runner rejects malformed credential text before creating a run.
+The hidden prompt keeps the key out of shell history. Paste only the raw key:
+smart quotes and trailing whitespace cause credential validation to fail.
+For an unauthenticated local service, set `endpoint.api_key_env: null` in the
+YAML. Never put an API key directly in the configuration file.
 
-The smoke experiment uses generator version `1.1.0`, which places inert prompt
-padding before the source JSON so it cannot look like a continuation of the
-expected output. Version `1.0.0` remains available for reproducing older runs.
-It also sets `run.stream_include_usage: true` to request the final streaming
-usage chunk used for token throughput and TPOT. Some OpenAI-compatible services
-may not support that option; omit it for those endpoints, in which case missing
-token metrics remain unavailable rather than zero.
+Each run gets its own directory under `runs/`, including `responses.jsonl`,
+`summary.json`, `summary.csv`, and `report.md`. The `runs/` directory is ignored
+by Git; inspect raw artifacts before sharing them.
 
-After the smoke run, the larger baseline keeps the same four conditions but
-uses 24 distinct cases (six per family) and two repetitions: 192 measured
-requests plus four warmups. Check all cases offline before sending real requests:
+## Reproducible experiments
 
-```bash
-sor validate examples/openai-baseline.yaml --check-cases
-sor run examples/openai-baseline.yaml
-```
+These configurations are examples of *specific comparisons*, not evidence
+that every supported matrix dimension has been evaluated. Automated tests
+in `tests/` verify the software, not model-service behavior.
 
-The baseline is a separate run and does not overwrite the smoke artifacts.
+| Experiment | Comparison | Evidence |
+|---|---|---|
+| Five-run baseline | Concurrency 1 vs. 4 and prompt-only vs. strict JSON Schema, on the same 24 cases; five sequential runs, 960 measured attempts | [YAML](examples/openai-baseline.yaml) · [Results and limitations](RESULTS.md) |
+| Load-stress pilot | Concurrency 1 vs. 8 in JSON Schema mode, with prompt-only as a secondary comparator; one run, 768 measured attempts | [YAML](examples/openai-stress.yaml) · [Plan](STRESS_PLAN.md) · [Results and limitations](STRESS_RESULTS.md) |
 
-To repeat that exact case set five times with five different, reproducible
-condition orders, prepare a plan without sending requests:
+**What we observed:** The baseline had 960/960 exactly correct responses;
+concurrency 4 had higher request throughput than concurrency 1. The stress
+pilot had 15 exact-value failures in synthetic padding, all in JSON Schema
+mode, but no Schema violations or request failures. These are findings for the
+documented service, cases, and sessions—not general or causal claims. The
+stress pilot increased prompt and output lengths, not the difficulty of the
+underlying field-extraction task.
 
-```bash
-python scripts/replicate_baseline.py --prepare-only
-```
+To add a completed experiment, publish its question, YAML, case-set hash,
+condition matrix, request counts, analysis method, aggregates, and limitations.
+Keep planned or offline-only configurations distinct from live findings.
 
-The command prints a `runs/replication-.../plan.json` path. In the terminal
-where `OPENAI_API_KEY` is set, execute or resume that specific plan:
+## CLI workflows
 
-```bash
-python scripts/replicate_baseline.py --plan runs/replication-.../plan.json
-```
+### Validate or generate cases offline
 
-The plan saves each condition order and completed run directory. The default
-five-run plan sends 960 measured requests and 20 warmups, with 15 seconds
-between runs; it does not save the API key. Keep `run.seed` fixed to preserve
-the generated cases, and vary only `run.condition_order_seed` to permute the
-condition order.
-
-After the five runs complete, rebuild the cross-run JSON and Markdown analysis
-from their saved artifacts without calling the API:
+Static validation checks the YAML and prints the number of conditions, cases,
+measured attempts, and warmups. `--json` makes the result machine-readable.
 
 ```bash
-python scripts/compare_replications.py runs/replication-.../plan.json
+sor validate examples/experiment.yaml
+sor validate examples/experiment.yaml --check-cases
 ```
 
-Its intervals use whole-run paired differences as observations. With five runs
-they are exploratory and should not be read as causal or multiple-testing-
-adjusted evidence.
+The second command also generates and checks every case *in memory*; neither
+command sends requests or requires a key. Token-length case generation may
+need the optional tokenizer dependency. Endpoint readiness is checked by
+`sor run`, not by validation.
 
-The completed load-stress pilot is specified in [`STRESS_PLAN.md`](STRESS_PLAN.md)
-and [`examples/openai-stress.yaml`](examples/openai-stress.yaml); its aggregate
-results are in [`STRESS_RESULTS.md`](STRESS_RESULTS.md). Validate all 96 cases
-offline before reproducing its 768 measured requests:
+To save a deterministic, self-contained JSONL case set instead:
 
 ```bash
-sor validate examples/openai-stress.yaml --check-cases
+sor generate examples/character-experiment.yaml --output artifacts/cases.jsonl
 ```
 
-This validation sends no API requests and needs no API key. The stress plan
-pre-specified a joint correctness/goodput question and kept rate-limit and
-other request failures visible instead of silently excluding them.
+Generation prints the canonical case-set SHA-256. The resolved configuration
+and root seed determine the same records, IDs, order, and hash. An existing
+file is preserved unless you pass `--force`.
 
-Character-length experiments work with the base installation. Exact token
-targeting uses the configured Hugging Face tokenizer and its chat template, so
-install the optional dependency when needed:
-
-```bash
-python -m pip install -e '.[dev,tokenizer]'
-```
-
-Loading a tokenizer may download its files on first use. The tokenizer is used
-only to count and size cases; no model weights are loaded.
-
-Score the exact assistant content saved in a UTF-8 file against one generated
-case:
-
-```bash
-sor score artifacts/cases.jsonl \
-  --case-id case_1ef862e16b62bb77 \
-  --response response.txt
-```
-
-Use `--json` for the complete score record. The primary path does not remove
-Markdown fences, extract a JSON substring, coerce types, or repair malformed
-content. A request that failed before content evaluation can also be recorded
-without shrinking correctness denominators:
-
-```bash
-sor score artifacts/cases.jsonl \
-  --case-id case_1ef862e16b62bb77 \
-  --request-failure timeout \
-  --json
-```
-
-Run the complete configured matrix against an already running service:
+### Run a matrix and inspect its results
 
 ```bash
 sor run examples/character-experiment.yaml
 ```
 
-`sor run` sends real HTTP requests. Set `endpoint.api_key_env: null` for a
-local service with no authentication, or set it to an environment-variable
-name such as `OPENAI_API_KEY` for a service that requires a Bearer token. Never
-put the key itself in YAML.
-
-While running, `sor` prints progress to stderr: total cases and attempts,
-current matrix condition, completed warmup and measured attempts, each reported
-case's outcome, and a waiting heartbeat after 10 seconds without a completed
-request. Small runs show every attempt; larger runs show about 50 progress
-checkpoints. With `--json`, stdout remains a single machine-readable result.
-
-The runner uses closed-loop fixed concurrency, executes warmup and measured
-attempts, supports streaming SSE and non-streaming responses, measures E2E
-latency/TTFT/TPOT, and writes each terminal result incrementally. The current
-run directory contains:
+`sor run` sends real HTTP requests. It executes warmups and measured attempts
+at closed-loop fixed concurrency, supports streaming SSE and non-streaming
+responses, and saves each terminal result incrementally. Progress goes to
+stderr: current condition, completed attempts, outcomes, and a waiting
+heartbeat. With `--json`, stdout stays machine-readable.
 
 ```text
 <output.root>/<run_id>/
@@ -247,32 +132,76 @@ run directory contains:
   report.md
 ```
 
-The summary and Markdown report are generated automatically after a run. They
-can be reproduced from the saved evidence without contacting the model service:
+The report and summaries are produced automatically. Rebuild them offline
+from the saved evidence, or evaluate the report's regression gates again:
 
 ```bash
 sor summarize runs/<run_id>
-```
-
-The aggregator verifies record schemas and configuration/case-set hashes,
-excludes warmups, keeps failed attempts in correctness denominators, and never
-pools different conditions. To regenerate the report explicitly and evaluate
-its gates:
-
-```bash
 sor report runs/<run_id>
 ```
 
-For a complete run, the report also shows exploratory pairwise comparisons
-between conditions that differ only in concurrency or structured-output mode
-and share the same generated cases. It averages repeated attempts per case,
-then bootstraps matched case IDs for 95% intervals on mean E2E, TTFT, and TPOT
-changes. Throughput ratios are descriptive only: a single run cannot provide
-a run-to-run throughput interval. Fixed condition execution order and temporal
-drift also mean these comparisons do not establish causation. See
-[`METRICS.md`](METRICS.md) for the exact method.
+The aggregator verifies record schemas and configuration/case-set hashes,
+excludes warmups, retains failed attempts in correctness denominators, and
+keeps conditions separate. It does not treat unavailable timing metrics as
+zero. For a complete run, the report includes exploratory paired comparisons
+for conditions differing only in concurrency or structured-output mode on the
+same cases. See [METRICS.md](METRICS.md) for the exact calculations and limits.
 
-Absolute gates use only the candidate run:
+### Score a saved response
+
+Score the *exact* assistant content in a UTF-8 file against a generated case:
+
+```bash
+sor score artifacts/cases.jsonl \
+  --case-id case_1ef862e16b62bb77 \
+  --response response.txt
+```
+
+`--json` returns the complete score record. Primary scoring never strips
+Markdown fences, extracts embedded JSON, coerces types, or repairs content.
+To record a request that failed before content evaluation, use
+`--request-failure timeout` instead of `--response`; the failed attempt still
+counts in correctness denominators.
+
+## Larger experiments and regression gates
+
+The [baseline configuration](examples/openai-baseline.yaml) has four conditions,
+24 cases, and two repetitions: 192 measured requests plus four warmups.
+Check it offline before sending requests:
+
+```bash
+sor validate examples/openai-baseline.yaml --check-cases
+sor run examples/openai-baseline.yaml
+```
+
+To repeat that case set five times with reproducible condition orders, first
+prepare a plan without sending requests. Then execute or resume the printed
+plan path in the shell with `OPENAI_API_KEY` set:
+
+```bash
+python scripts/replicate_baseline.py --prepare-only
+python scripts/replicate_baseline.py --plan runs/replication-.../plan.json
+python scripts/compare_replications.py runs/replication-.../plan.json
+```
+
+The default plan sends 960 measured requests and 20 warmups, with 15 seconds
+between runs. It saves condition order and completed run paths, but not the
+API key. Keep `run.seed` fixed to preserve the cases; vary only
+`run.condition_order_seed` to permute condition order. The comparison script
+rebuilds cross-run JSON and Markdown analysis offline. Its whole-run paired
+intervals are exploratory with only five runs and are not causal or
+multiple-testing-adjusted evidence.
+
+The completed [load-stress plan](STRESS_PLAN.md) specifies 96 cases and 768
+measured requests. Its [results](STRESS_RESULTS.md) include correctness and
+quality goodput, with request failures kept visible. To preflight its cases:
+
+```bash
+sor validate examples/openai-stress.yaml --check-cases
+```
+
+Regression gates can compare a candidate with an absolute threshold or a
+complete saved baseline. For example:
 
 ```yaml
 gates:
@@ -281,10 +210,6 @@ gates:
     value: 0.95
     estimate: lower_ci
 ```
-
-Relative gates point to a complete prior run. Relative paths are resolved from
-the experiment YAML's directory when `sor run` starts and saved as absolute
-paths in `config.resolved.yaml`:
 
 ```yaml
 baseline_run: ./runs/20261010T120000000000Z_0123456789ab
@@ -295,22 +220,47 @@ gates:
     estimate: point
 ```
 
-`sor run`, `sor summarize`, and `sor report` return exit code `1` when a
-configured gate fails or is unavailable. Setup, artifact, and reporting errors
-return `2`. The run manifest remains complete after an ordinary gate failure.
+Relative `baseline_run` paths resolve from the experiment YAML's directory
+when the run starts and are saved as absolute paths in `config.resolved.yaml`.
+`sor run`, `sor summarize`, and `sor report` exit with code `1` for a failed
+or unavailable gate, and `2` for setup, artifact, or reporting errors. An
+ordinary gate failure leaves the run manifest complete.
 
-## Container
+## Notes and limits
 
-Build the CLI image and verify it:
+- The built-in cases cover four structural families. Long outputs use
+  synthetic padding; exact correctness includes that padding. The report's
+  supplementary non-padding field accuracy helps separate padding errors
+  from task-field errors. Strict exact correctness and quality goodput are
+  unchanged.
+- The smoke configuration uses generator version `1.1.0`, which places inert
+  prompt padding before the source JSON. Version `1.0.0` remains available
+  for reproducing older runs.
+- The smoke configuration requests a final streaming usage chunk with
+  `run.stream_include_usage: true` for token throughput and TPOT. If your
+  service does not support it, omit the option; unavailable token metrics
+  remain missing rather than zero.
+- Character-length experiments work with the base installation. For exact
+  token targeting, install `python -m pip install -e '.[dev,tokenizer]'`.
+  The configured Hugging Face tokenizer and chat template may be downloaded
+  on first use; no model weights are loaded.
+- Within-run latency comparisons bootstrap matched case IDs for 95%
+  intervals on mean E2E, TTFT, and TPOT changes. Single-run throughput ratios
+  are descriptive only. Fixed execution order and temporal drift limit
+  causal interpretation; see [METRICS.md](METRICS.md).
+
+## Container and project references
+
+Build and verify the container image:
 
 ```bash
 docker build -t structured-output-reliability .
 docker run --rm structured-output-reliability --version
 ```
 
-Mount an experiment directory at `/workspace` to run a real configuration. The
-configured endpoint URL must be reachable from inside the container, and the
-mounted output directory must be writable by the container user (UID 10001):
+To use a host experiment file, mount a writable directory at `/workspace`.
+The endpoint URL must be reachable from inside the container, and the mounted
+output directory must be writable by the container user (UID 10001).
 
 ```bash
 docker run --rm \
@@ -319,17 +269,13 @@ docker run --rm \
   validate /workspace/examples/character-experiment.yaml
 ```
 
-The GitHub Actions workflow tests Python 3.11 and 3.14, runs the end-to-end
-smoke test, builds the wheel and source distribution, and verifies the Docker
-image.
+GitHub Actions tests Python 3.11 and 3.14, runs the local smoke test, builds
+the wheel and source distribution, and checks the Docker image.
 
-## License
-
-MIT. See [`LICENSE`](LICENSE).
-
-## Contracts
-
-- [`DESIGN.md`](DESIGN.md) freezes the MVP scope.
-- [`CONFIG.md`](CONFIG.md) defines configuration and record formats.
-- [`METRICS.md`](METRICS.md) defines metric formulas and denominators.
-- [`schemas/`](schemas/) contains the normative JSON Schemas.
+| Reference | What it defines |
+|---|---|
+| [DESIGN.md](DESIGN.md) | Frozen v0.1 MVP scope and non-goals |
+| [CONFIG.md](CONFIG.md) | YAML, case, condition, and run-record formats |
+| [METRICS.md](METRICS.md) | Metric formulas, denominators, and comparison method |
+| [schemas/](schemas/) | Normative JSON Schemas |
+| [LICENSE](LICENSE) | MIT license |
