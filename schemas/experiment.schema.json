@@ -215,6 +215,9 @@
         "seed": {
           "type": "integer"
         },
+        "condition_order_seed": {
+          "type": "integer"
+        },
         "repetitions": {
           "type": "integer",
           "minimum": 1

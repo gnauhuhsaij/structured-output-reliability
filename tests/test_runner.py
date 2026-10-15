@@ -26,6 +26,7 @@ from structured_output_reliability.runner import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHARACTER_EXAMPLE = REPOSITORY_ROOT / "examples" / "character-experiment.yaml"
 OPENAI_SMOKE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-smoke.yaml"
+OPENAI_BASELINE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-baseline.yaml"
 
 
 class _MockState:
@@ -385,16 +386,22 @@ def test_progress_reports_waiting_and_completed_attempts(
     assert attempt.outcome == "exact_correct"
 
 
-def test_openai_smoke_workload_runs_with_usage_streaming_against_mock(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("example", "case_count"),
+    [(OPENAI_SMOKE_EXAMPLE, 4), (OPENAI_BASELINE_EXAMPLE, 24)],
+)
+def test_openai_workload_runs_with_usage_streaming_against_mock(
+    tmp_path: Path, example: Path, case_count: int,
 ) -> None:
     with mock_openai_server() as (base_url, state):
-        config = load_experiment(OPENAI_SMOKE_EXAMPLE)
+        config = load_experiment(example)
         config["endpoint"].update(
             {"base_url": base_url, "model": "stream", "api_key_env": None}
         )
+        if example == OPENAI_BASELINE_EXAMPLE:
+            config["run"]["condition_order_seed"] = 2
         config["output"]["root"] = str(tmp_path / "runs")
-        config_path = tmp_path / "openai-smoke-mock.yaml"
+        config_path = tmp_path / f"{example.stem}-mock.yaml"
         config_path.write_text(
             yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
@@ -402,10 +409,10 @@ def test_openai_smoke_workload_runs_with_usage_streaming_against_mock(
         result = run_experiment(config_path)
 
     assert result.condition_count == 4
-    assert result.measured_attempts == 32
+    assert result.measured_attempts == 4 * case_count * 2
     assert result.warmup_attempts == 4
     assert result.request_failures == 0
-    assert len(state.bodies) == 36
+    assert len(state.bodies) == 4 * case_count * 2 + 4
     assert all(
         body["stream_options"] == {"include_usage": True}
         for body in state.bodies
@@ -414,6 +421,30 @@ def test_openai_smoke_workload_runs_with_usage_streaming_against_mock(
     assert all(attempt["score"]["exact_correct"] for attempt in attempts)
     assert all(attempt["tokens"]["token_count_source"] == "server" for attempt in attempts)
     assert all(attempt["timing"]["tpot_ns"] is not None for attempt in attempts)
+    report = (result.run_directory / "report.md").read_text(encoding="utf-8")
+    assert "## Exploratory pairwise comparisons" in report
+    assert "concurrency 1 → 4; mode=prompt_only" in report
+    assert "95% case-bootstrap interval" in report
+
+
+def test_condition_order_seed_reorders_without_changing_cases_or_condition_ids() -> None:
+    config = load_experiment(OPENAI_BASELINE_EXAMPLE)
+    generated = generate_cases(config)
+    original = build_conditions(config, generated)
+    original_ids = {condition["condition_id"] for condition in original}
+
+    orders = []
+    for order_seed in range(5):
+        config["run"]["condition_order_seed"] = order_seed
+        reordered = build_conditions(config, generated)
+        assert {condition["condition_id"] for condition in reordered} == original_ids
+        assert {condition["case_set_sha256"] for condition in reordered} == {
+            condition["case_set_sha256"] for condition in original
+        }
+        assert reordered == build_conditions(config, generated)
+        orders.append(tuple(condition["condition_id"] for condition in reordered))
+
+    assert len(set(orders)) >= 4
 
 
 def test_extra_body_mode_inserts_a_fresh_case_schema() -> None:

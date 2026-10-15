@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from collections import defaultdict
@@ -16,6 +17,7 @@ from structured_output_reliability.metrics import (
     AggregationError,
     build_summary,
 )
+from structured_output_reliability.pairwise import LATENCY_METRICS, build_pairwise_contrasts
 
 
 class ReportingError(ValueError):
@@ -81,6 +83,15 @@ def generate_report(
     gates = config["gates"]
     gate_results, gates_passed = evaluate_gates(candidate, gates, baseline)
     comparison = _comparison_inventory(candidate, baseline)
+    pairwise_contrasts = (
+        build_pairwise_contrasts(
+            candidate["conditions"],
+            _load_saved_attempts(directory / "responses.jsonl"),
+            experiment_seed=config["run"]["seed"],
+        )
+        if candidate["run_complete"]
+        else []
+    )
     markdown = render_markdown_report(
         config=config,
         candidate=candidate,
@@ -89,6 +100,7 @@ def generate_report(
         gate_results=gate_results,
         gates_passed=gates_passed,
         comparison=comparison,
+        pairwise_contrasts=pairwise_contrasts,
     )
     report_path = directory / "report.md"
     _atomic_write_text(report_path, markdown)
@@ -230,6 +242,7 @@ def render_markdown_report(
     gate_results: Sequence[Mapping[str, Any]],
     gates_passed: bool,
     comparison: Mapping[str, int],
+    pairwise_contrasts: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """Render a compact, deterministic Markdown view of one summary."""
 
@@ -282,6 +295,9 @@ def render_markdown_report(
     lines.extend(_latency_table(candidate["conditions"]))
     lines.extend(["", "### Throughput", ""])
     lines.extend(_throughput_table(candidate["conditions"]))
+    if pairwise_contrasts:
+        lines.extend(["", "## Exploratory pairwise comparisons", ""])
+        lines.extend(_pairwise_tables(pairwise_contrasts))
     lines.extend(["", "## Outcome counts", ""])
     lines.extend(_outcome_table(candidate["conditions"]))
     lines.extend(["", "## Regression gates", ""])
@@ -416,6 +432,89 @@ def _dimension_cells(condition: Mapping[str, Any]) -> list[str]:
         str(seed) if seed is not None else "—",
         _escape(dimensions["structured_mode"]),
     ]
+
+
+def _pairwise_tables(contrasts: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines = [
+        "Each contrast changes only concurrency or structured-output mode while "
+        "holding the other condition dimensions fixed. Positive latency change "
+        "means B is slower than A. Repetitions are averaged within each matched "
+        "case; the 95% percentile interval resamples case IDs 10,000 times.",
+        "",
+        "These intervals reflect case variation within this single run, not "
+        "run-to-run variation or the fixed condition execution order. They are "
+        "exploratory, not causal evidence; intervals based on fewer than 20 "
+        "matched cases are especially unstable.",
+        "",
+        "### Paired latency changes",
+        "",
+        "| Comparison (A → B) | Metric | Matched cases | Mean change (B − A) | 95% case-bootstrap interval |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for contrast in contrasts:
+        for key, label, _ in LATENCY_METRICS:
+            metric = contrast["latency"][key]
+            value = metric["value_ms"]
+            interval = metric["interval_ms"]
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(contrast["label"]),
+                        label,
+                        str(metric["matched_cases"]),
+                        f"{value:+.1f} ms" if value is not None else "—",
+                        (
+                            f"[{interval[0]:+.1f}, {interval[1]:+.1f}] ms"
+                            if interval is not None
+                            else "—"
+                        ),
+                    ]
+                )
+                + " |"
+            )
+    lines.extend(
+        [
+            "",
+            "### Descriptive throughput changes",
+            "",
+            "| Comparison (A → B) | A request throughput | B request throughput | B / A |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for contrast in contrasts:
+        first = contrast["first_request_throughput_rps"]
+        second = contrast["second_request_throughput_rps"]
+        ratio = contrast["request_throughput_ratio"]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _escape(contrast["label"]),
+                    f"{first:.3f} req/s" if first is not None else "—",
+                    f"{second:.3f} req/s" if second is not None else "—",
+                    f"{ratio:.2f}×" if ratio is not None else "—",
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "Throughput has one observation per condition in this run, so no "
+            "request-level bootstrap interval is reported. All-success correctness "
+            "outcomes are likewise not shown as zero-width paired intervals.",
+        ]
+    )
+    return lines
+
+
+def _load_saved_attempts(path: Path) -> list[dict[str, Any]]:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return [json.loads(line) for line in handle if line.strip()]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ReportingError(f"cannot read saved attempts from {path}: {exc}") from exc
 
 
 def _outcome_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:

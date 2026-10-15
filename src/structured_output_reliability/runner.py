@@ -413,6 +413,15 @@ def build_conditions(
         if errors:
             raise RunnerError(f"generated invalid condition: {errors[0].message}")
         records.append(record)
+    if "condition_order_seed" in config["run"]:
+        order_seed = config["run"]["condition_order_seed"]
+        records.sort(
+            key=lambda record: hashlib.sha256(
+                canonical_json(
+                    {"seed": order_seed, "condition_id": record["condition_id"]}
+                ).encode("utf-8")
+            ).digest()
+        )
     return tuple(records)
 
 

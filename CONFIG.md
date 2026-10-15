@@ -4,7 +4,7 @@ Status: frozen for MVP v0.1
 
 Configuration contract version: 1.0.0
 
-Last updated: 2026-10-10
+Last updated: 2026-10-15
 
 ## 1. Purpose
 
@@ -91,6 +91,10 @@ fastest. Duplicate axis values are rejected.
 
 `run.seed` is the root seed for case generation and deterministic execution
 order. `run.repetitions` is the number of measured repetitions per case.
+Optional `run.condition_order_seed` deterministically permutes the conditions
+after matrix expansion. It changes neither generated cases nor condition IDs,
+and is saved in the resolved configuration so repeated experiments can vary
+condition order reproducibly.
 `run.warmup_requests_per_condition` is saved but excluded from metrics.
 `run.stream` defaults to true. Retries do not exist in contract version 1.0.0.
 

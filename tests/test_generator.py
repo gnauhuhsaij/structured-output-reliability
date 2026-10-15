@@ -24,6 +24,7 @@ from structured_output_reliability.scorer import score_response
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHARACTER_EXAMPLE = REPOSITORY_ROOT / "examples" / "character-experiment.yaml"
 OPENAI_SMOKE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-smoke.yaml"
+OPENAI_BASELINE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-baseline.yaml"
 
 
 class CharacterLikeTokenMeasurer:
@@ -178,6 +179,30 @@ def test_openai_smoke_cases_are_generatable_and_score_correctly() -> None:
                 }
             else:
                 assert "response_format" not in body
+
+
+def test_openai_baseline_has_balanced_valid_cases_and_expected_workload() -> None:
+    config = load_experiment(OPENAI_BASELINE_EXAMPLE)
+    generated = generate_cases(config)
+    conditions = build_conditions(config, generated)
+
+    assert len(generated.records) == 24
+    assert len(conditions) == 4
+    assert {family: sum(case["family"] == family for case in generated.records)
+            for family in config["cases"]["families"]} == {
+        "flat_object": 6,
+        "nested_object": 6,
+        "array_object": 6,
+        "mixed_types": 6,
+    }
+    for case in generated.records:
+        assert case["prompt_length"]["actual"] == 2048
+        assert case["expected_output_length"]["actual"] == 256
+        assert score_response(case, canonical_json(case["expected"]))["exact_correct"]
+        for condition in conditions:
+            body = build_request_body(condition, case)
+            assert body["max_completion_tokens"] == 512
+            assert body["stream_options"] == {"include_usage": True}
 
 
 def test_unknown_generator_version_is_rejected() -> None:

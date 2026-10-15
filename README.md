@@ -13,6 +13,9 @@ consistency, latency, throughput, goodput, and confidence intervals offline.
 Every completed run also receives a Markdown report, and configured regression
 gates can fail a CI command without changing the run's completed status.
 
+An exploratory five-run example, including its full setup and interpretation
+limits, is in [`RESULTS.md`](RESULTS.md).
+
 ## Development setup
 
 ```bash
@@ -93,6 +96,48 @@ It also sets `run.stream_include_usage: true` to request the final streaming
 usage chunk used for token throughput and TPOT. Some OpenAI-compatible services
 may not support that option; omit it for those endpoints, in which case missing
 token metrics remain unavailable rather than zero.
+
+After the smoke run, the larger baseline keeps the same four conditions but
+uses 24 distinct cases (six per family) and two repetitions: 192 measured
+requests plus four warmups. Check all cases offline before sending real requests:
+
+```bash
+sor validate examples/openai-baseline.yaml --check-cases
+sor run examples/openai-baseline.yaml
+```
+
+The baseline is a separate run and does not overwrite the smoke artifacts.
+
+To repeat that exact case set five times with five different, reproducible
+condition orders, prepare a plan without sending requests:
+
+```bash
+python scripts/replicate_baseline.py --prepare-only
+```
+
+The command prints a `runs/replication-.../plan.json` path. In the terminal
+where `OPENAI_API_KEY` is set, execute or resume that specific plan:
+
+```bash
+python scripts/replicate_baseline.py --plan runs/replication-.../plan.json
+```
+
+The plan saves each condition order and completed run directory. The default
+five-run plan sends 960 measured requests and 20 warmups, with 15 seconds
+between runs; it does not save the API key. Keep `run.seed` fixed to preserve
+the generated cases, and vary only `run.condition_order_seed` to permute the
+condition order.
+
+After the five runs complete, rebuild the cross-run JSON and Markdown analysis
+from their saved artifacts without calling the API:
+
+```bash
+python scripts/compare_replications.py runs/replication-.../plan.json
+```
+
+Its intervals use whole-run paired differences as observations. With five runs
+they are exploratory and should not be read as causal or multiple-testing-
+adjusted evidence.
 
 Character-length experiments work with the base installation. Exact token
 targeting uses the configured Hugging Face tokenizer and its chat template, so
@@ -176,6 +221,15 @@ its gates:
 ```bash
 sor report runs/<run_id>
 ```
+
+For a complete run, the report also shows exploratory pairwise comparisons
+between conditions that differ only in concurrency or structured-output mode
+and share the same generated cases. It averages repeated attempts per case,
+then bootstraps matched case IDs for 95% intervals on mean E2E, TTFT, and TPOT
+changes. Throughput ratios are descriptive only: a single run cannot provide
+a run-to-run throughput interval. Fixed condition execution order and temporal
+drift also mean these comparisons do not establish causation. See
+[`METRICS.md`](METRICS.md) for the exact method.
 
 Absolute gates use only the candidate run:
 

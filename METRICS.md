@@ -373,6 +373,36 @@ The point estimate is the total qualifying count across repetitions divided by
 the total measured wall time across repetitions. The interval resamples complete
 repetitions and recomputes that ratio.
 
+### 9.4 Exploratory within-run contrasts in the Markdown report
+
+The report compares two complete conditions only when they have identical
+generated case IDs and differ in exactly one dimension: concurrency or
+structured-output mode. For each latency metric, a case is eligible only when
+both conditions have a measured value in every matching repetition. The paired
+change is `B - A`, averaged over repetitions within each case, then over cases.
+Its 95% percentile interval resamples the matched case IDs 10,000 times using
+a deterministic seed derived from the experiment seed, both condition IDs,
+and the metric. An interval is unavailable with fewer than two eligible cases.
+
+This interval reflects variation across cases in one run. It does not account
+for run-to-run variation, shared service conditions, or the fixed execution
+order of conditions; it is not a causal estimate. The report shows request
+throughput as a descriptive `B / A` ratio without an interval because each
+condition supplies only one whole-run throughput observation. All-success
+correctness outcomes do not receive misleading zero-width paired intervals.
+
+### 9.5 Five-run replication analysis
+
+The optional `scripts/compare_replications.py` analysis validates all five
+saved runs, checks that their case-set hashes and condition IDs agree, and
+forms the same canonical A-to-B contrast in each run. It averages the five
+run-level latency differences and reports a two-sided 95% Student-t interval
+using four degrees of freedom. Request-throughput ratios are averaged and
+intervalled on the log scale, then exponentiated. The sampling unit is the
+complete run, not an individual request or case. With only five sequential
+runs, the approximate-normal and independence assumptions are weak; intervals
+are exploratory and not adjusted for multiple comparisons.
+
 ## 10. Error and diagnostic fields
 
 Each attempt stores independent stage fields plus one primary outcome. Primary
