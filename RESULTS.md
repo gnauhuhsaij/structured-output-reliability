@@ -32,6 +32,17 @@ rate is zero. Each condition averaged 49.25 output tokens over its 240
 measured attempts, so the latency differences below are not explained by
 different mean output lengths.
 
+| Concurrency | Mode | Request success | JSON parse | Schema valid | Exact correct | Correct fields | Consistent case pairs |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | Prompt-only | 240/240 | 240/240 | 240/240 | 240/240 | 1,200/1,200 | 120/120 |
+| 1 | JSON Schema | 240/240 | 240/240 | 240/240 | 240/240 | 1,200/1,200 | 120/120 |
+| 4 | Prompt-only | 240/240 | 240/240 | 240/240 | 240/240 | 1,200/1,200 | 120/120 |
+| 4 | JSON Schema | 240/240 | 240/240 | 240/240 | 240/240 | 1,200/1,200 | 120/120 |
+
+No failures were observed in any condition. A zero-width bootstrap interval
+for a paired correctness difference would misleadingly imply that equal
+underlying reliability has been established; it has not.
+
 Positive latency changes mean condition B was slower than A. Each run's change
 averages matched case-level differences. The across-run mean and 95% Student-t
 interval use the **five whole-run changes** as observations (four degrees of

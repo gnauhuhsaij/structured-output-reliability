@@ -25,6 +25,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHARACTER_EXAMPLE = REPOSITORY_ROOT / "examples" / "character-experiment.yaml"
 OPENAI_SMOKE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-smoke.yaml"
 OPENAI_BASELINE_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-baseline.yaml"
+OPENAI_STRESS_EXAMPLE = REPOSITORY_ROOT / "examples" / "openai-stress.yaml"
 
 
 class CharacterLikeTokenMeasurer:
@@ -109,6 +110,36 @@ def test_each_length_cell_gets_the_configured_case_count() -> None:
         (2300, 256): 4,
         (2300, 300): 4,
     }
+
+
+def test_stress_workload_is_fixed_valid_and_exactly_scoreable() -> None:
+    config = load_experiment(OPENAI_STRESS_EXAMPLE)
+    generated = generate_cases(config)
+    conditions = build_conditions(config, generated)
+
+    assert len(generated.records) == 96
+    assert len(conditions) == 4
+    assert generated.sha256 == (
+        "782efebfdc5e797898834e3db08fdc0dc5575c4c0768534deca511a7faafb8d1"
+    )
+    assert {
+        family: sum(case["family"] == family for case in generated.records)
+        for family in config["cases"]["families"]
+    } == {family: 24 for family in config["cases"]["families"]}
+    assert all(case["prompt_length"]["actual"] == 8192 for case in generated.records)
+    assert all(
+        case["expected_output_length"]["actual"] == 512
+        for case in generated.records
+    )
+    for case in generated.records:
+        Draft202012Validator(case["json_schema"]).validate(case["expected"])
+        source_json = (
+            case["messages"][1]["content"]
+            .split("SOURCE_JSON:", 1)[1]
+            .split("\nEND_SOURCE_JSON", 1)[0]
+        )
+        assert json.loads(source_json) == case["expected"]
+        assert score_response(case, canonical_json(case["expected"]))["exact_correct"]
 
 
 def test_token_measurer_marks_exact_targets() -> None:

@@ -1,0 +1,55 @@
+schema_version: "1.0.0"
+name: openai-structured-output-stress-v1
+description: Pre-specified exploratory stress comparison for correctness and performance.
+
+endpoint:
+  base_url: https://api.openai.com/v1
+  path: /chat/completions
+  model: gpt-4o-mini-2024-07-18
+  api_key_env: OPENAI_API_KEY
+  timeout_seconds: 60
+
+cases:
+  count: 96
+  length_unit: characters
+  generator_version: "1.1.0"
+  families:
+    - flat_object
+    - nested_object
+    - array_object
+    - mixed_types
+
+run:
+  seed: 20261015
+  condition_order_seed: 0
+  repetitions: 2
+  warmup_requests_per_condition: 1
+  stream: true
+  stream_include_usage: true
+
+structured_modes:
+  - id: prompt_only
+    type: prompt_only
+  - id: json_schema
+    type: response_format
+    strict: true
+
+matrix:
+  concurrency:
+    - 1
+    - 8
+  prompt_lengths:
+    - 8192
+  output_shapes:
+    - target_length: 512
+      max_completion_tokens: 1024
+  temperatures:
+    - 0
+  request_seeds:
+    - 42
+  structured_modes:
+    - prompt_only
+    - json_schema
+
+output:
+  root: ./runs

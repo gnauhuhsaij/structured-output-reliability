@@ -181,6 +181,7 @@ def test_correctness_field_consistency_latency_and_throughput_denominators() -> 
     assert metrics["schema_valid_given_parse"]["value"] == 1 / 2
     assert metrics["exact_correct_given_schema"]["value"] == 1
     assert metrics["micro_field_accuracy"]["value"] == 3 / 10
+    assert metrics["non_padding_field_accuracy"]["value"] == 3 / 10
     assert metrics["macro_field_accuracy"]["value"] == 3 / 8
     assert metrics["repeat_consistency_rate"]["value"] == 0
     assert metrics["all_repeats_correct_case_rate"]["value"] == 0
@@ -432,3 +433,44 @@ def test_no_metric_contains_non_finite_numbers() -> None:
         for key in ("value", "numerator", "denominator"):
             value = metric[key]
             assert value is None or math.isfinite(value)
+
+
+def test_non_padding_accuracy_separates_filler_from_task_fields() -> None:
+    condition = _condition(repetitions=3)
+    case = _case(1)
+    case["generator"] = {"name": "sor-built-in"}
+    case["expected_field_paths"] = ["/active", "/count", "/label", "/padding"]
+    attempts = [
+        _attempt(
+            case,
+            repeat_id,
+            start_seconds=repeat_id,
+            observed_ms=10,
+            request_success=repeat_id != 2,
+            json_parsed=repeat_id != 2,
+            schema_valid=repeat_id != 2,
+            exact_correct=False,
+            correct_fields=3 if repeat_id != 2 else 0,
+            total_fields=4,
+            parsed_json={} if repeat_id != 2 else None,
+            primary_outcome="field_incorrect" if repeat_id != 2 else "timeout",
+            output_tokens=5 if repeat_id != 2 else None,
+        )
+        for repeat_id in range(3)
+    ]
+    attempts[0]["score"]["comparison_errors"] = [{"path": "/padding"}]
+    attempts[1]["score"]["comparison_errors"] = [{"path": "/count"}]
+    attempts[2]["score"]["comparison_errors"] = []
+
+    metrics = aggregate_condition(
+        condition,
+        [case],
+        attempts,
+        experiment_seed=8,
+        manifest_complete=True,
+    )["metrics"]
+
+    assert metrics["micro_field_accuracy"]["value"] == 6 / 12
+    assert metrics["non_padding_field_accuracy"]["value"] == 5 / 9
+    assert metrics["non_padding_field_accuracy"]["numerator"] == 5
+    assert metrics["non_padding_field_accuracy"]["denominator"] == 9

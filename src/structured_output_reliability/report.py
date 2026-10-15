@@ -291,6 +291,14 @@ def render_markdown_report(
 
     lines.extend(["", "## Correctness and reliability", ""])
     lines.extend(_condition_table(candidate["conditions"]))
+    lines.extend(
+        [
+            "",
+            "Non-padding fields exclude only the built-in generator's synthetic "
+            "`/padding` field. Exact correctness, overall field accuracy, and "
+            "quality goodput still include it.",
+        ]
+    )
     lines.extend(["", "## Timing and throughput", "", "### Latency", ""])
     lines.extend(_latency_table(candidate["conditions"]))
     lines.extend(["", "### Throughput", ""])
@@ -337,6 +345,7 @@ def _condition_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
             "Schema valid",
             "Exact correct",
             "Field accuracy (micro)",
+            "Non-padding fields",
             "Field accuracy (macro)",
             "Consistency",
         )
@@ -353,6 +362,11 @@ def _condition_table(conditions: Sequence[Mapping[str, Any]]) -> list[str]:
                     _format_metric(metrics["schema_valid_rate"], percent=True),
                     _format_metric(metrics["exact_correct_rate"], percent=True),
                     _format_metric(metrics["micro_field_accuracy"], percent=True),
+                    (
+                        _format_metric(metrics["non_padding_field_accuracy"], percent=True)
+                        if "non_padding_field_accuracy" in metrics
+                        else "—"
+                    ),
                     _format_metric(metrics["macro_field_accuracy"], percent=True),
                     _format_metric(metrics["repeat_consistency_rate"], percent=True),
                 ]

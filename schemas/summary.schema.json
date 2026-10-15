@@ -201,6 +201,9 @@
             "micro_field_accuracy": {
               "$ref": "#/$defs/metric"
             },
+            "non_padding_field_accuracy": {
+              "$ref": "#/$defs/metric"
+            },
             "macro_field_accuracy": {
               "$ref": "#/$defs/metric"
             },

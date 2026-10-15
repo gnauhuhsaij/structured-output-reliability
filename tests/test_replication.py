@@ -89,3 +89,38 @@ def test_five_run_interval_uses_runs_as_observations() -> None:
         [1.0, None, 3.0, 4.0, 5.0]
     )
     assert unavailable["t_interval"] is None
+
+
+def test_reliability_formatter_shows_counts_without_false_certainty() -> None:
+    assert compare_replications._format_reliability(
+        {"numerator": 240, "denominator": 240}
+    ) == "240/240 (100.0%)"
+    assert compare_replications._format_reliability(
+        {"numerator": 0, "denominator": 0}
+    ) == "—"
+
+
+def test_replication_markdown_keeps_reliability_visible() -> None:
+    analysis = {
+        "measured_attempts": 240,
+        "exact_correct_attempts": 240,
+        "request_failures": 0,
+        "reliability_by_condition": [
+            {
+                "concurrency": 1,
+                "structured_mode": "json_schema",
+                "metrics": {
+                    key: {"numerator": 240, "denominator": 240}
+                    for key, _ in compare_replications.RELIABILITY_KEYS
+                },
+            }
+        ],
+        "comparisons": [],
+        "output_tokens_by_condition": [],
+    }
+
+    markdown = compare_replications.render_markdown(analysis)
+
+    assert "## Correctness and reliability" in markdown
+    assert "240/240 (100.0%)" in markdown
+    assert "does not establish equal underlying reliability" in markdown

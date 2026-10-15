@@ -41,6 +41,8 @@ include = [
   "/tests",
   "/README.md",
   "/RESULTS.md",
+  "/STRESS_PLAN.md",
+  "/STRESS_RESULTS.md",
   "/DESIGN.md",
   "/CONFIG.md",
   "/METRICS.md",

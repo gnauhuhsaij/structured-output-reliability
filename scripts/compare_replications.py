@@ -23,6 +23,14 @@ LATENCY_KEYS = (
     ("mean_ttft_ms", "Mean TTFT change"),
     ("mean_tpot_ms", "Mean TPOT change"),
 )
+RELIABILITY_KEYS = (
+    ("request_success_rate", "Request success"),
+    ("json_parse_rate", "JSON parse"),
+    ("schema_valid_rate", "Schema valid"),
+    ("exact_correct_rate", "Exact correct"),
+    ("micro_field_accuracy", "Field accuracy"),
+    ("repeat_consistency_rate", "Consistency"),
+)
 
 
 def analyze(plan_path: Path) -> dict[str, Any]:
@@ -37,6 +45,7 @@ def analyze(plan_path: Path) -> dict[str, Any]:
     total_exact = 0
     total_failures = 0
     output_tokens_by_condition: dict[tuple[int, str], list[int]] = defaultdict(list)
+    reliability_by_condition: dict[str, dict[str, Any]] = {}
     for entry in entries:
         directory = Path(entry["run_directory"])
         summary = build_summary(directory)
@@ -51,6 +60,25 @@ def analyze(plan_path: Path) -> dict[str, Any]:
         condition_ids = current_ids
         total_measured += manifest["terminal_measured_attempts"]
         total_failures += manifest["request_failures"]
+        for condition in summary["conditions"]:
+            condition_id = condition["condition_id"]
+            row = reliability_by_condition.setdefault(
+                condition_id,
+                {
+                    "condition_id": condition_id,
+                    "concurrency": condition["dimensions"]["concurrency"],
+                    "structured_mode": condition["dimensions"]["structured_mode"],
+                    "metrics": {
+                        key: {"numerator": 0, "denominator": 0}
+                        for key, _ in RELIABILITY_KEYS
+                    },
+                },
+            )
+            for key, _ in RELIABILITY_KEYS:
+                metric = condition["metrics"][key]
+                if metric["numerator"] is not None and metric["denominator"] is not None:
+                    row["metrics"][key]["numerator"] += metric["numerator"]
+                    row["metrics"][key]["denominator"] += metric["denominator"]
 
         attempts = [
             json.loads(line)
@@ -124,6 +152,10 @@ def analyze(plan_path: Path) -> dict[str, Any]:
         "exact_correct_attempts": total_exact,
         "request_failures": total_failures,
         "generated_cases_sha256": plan["generated_cases_sha256"],
+        "reliability_by_condition": sorted(
+            reliability_by_condition.values(),
+            key=lambda item: (item["concurrency"], item["structured_mode"]),
+        ),
         "output_tokens_by_condition": [
             {
                 "concurrency": concurrency,
@@ -169,7 +201,38 @@ def render_markdown(analysis: dict[str, Any]) -> str:
         "it is exploratory. Intervals are not adjusted for the many comparisons. "
         "Sequential runs and service drift remain possible.",
         "",
+        "## Correctness and reliability",
+        "",
+        "| Concurrency | Mode | Request success | JSON parse | Schema valid | Exact correct | Field accuracy | Consistency |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|",
     ]
+    for row in analysis["reliability_by_condition"]:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row["concurrency"]),
+                    row["structured_mode"],
+                    *[
+                        _format_reliability(row["metrics"][key])
+                        for key, _ in RELIABILITY_KEYS
+                    ],
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "These are observed aggregate counts from five runs of the same case "
+            "set. Request failures remain in the correctness denominators. "
+            "With no observed failures, a paired bootstrap would yield a "
+            "misleading zero-width interval; the table does not establish "
+            "equal underlying reliability. Individual run reports retain "
+            "their condition-level Wilson intervals.",
+            "",
+        ]
+    )
     for metric_key, heading in LATENCY_KEYS:
         lines.extend(
             [
@@ -262,6 +325,14 @@ def render_markdown(analysis: dict[str, Any]) -> str:
 
 def _format_latency(value: float | None) -> str:
     return f"{value:+.1f} ms" if value is not None else "—"
+
+
+def _format_reliability(metric: dict[str, float | int]) -> str:
+    denominator = metric["denominator"]
+    if denominator == 0:
+        return "—"
+    numerator = metric["numerator"]
+    return f"{numerator:g}/{denominator:g} ({numerator / denominator:.1%})"
 
 
 def main() -> int:

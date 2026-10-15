@@ -37,6 +37,7 @@ REQUIRED_METRICS = (
     "json_parse_rate",
     "schema_valid_rate",
     "micro_field_accuracy",
+    "non_padding_field_accuracy",
     "macro_field_accuracy",
     "exact_correct_rate",
     "repeat_consistency_rate",
@@ -296,6 +297,39 @@ def aggregate_condition(
         eligible_observations=started_attempts,
         interval=micro_interval,
         low_confidence=_interval_low_confidence(micro_interval),
+    )
+
+    task_field_totals_by_case: dict[str, tuple[int, int]] = {}
+    for case_id, case_attempts in attempts_by_case.items():
+        counts = [
+            _non_padding_field_counts(case_by_id[case_id], item["score"])
+            for item in case_attempts
+        ]
+        task_field_totals_by_case[case_id] = (
+            sum(correct for correct, _ in counts),
+            sum(total for _, total in counts),
+        )
+    task_cluster_ids = tuple(sorted(task_field_totals_by_case))
+
+    def task_field_statistic(sampled: Sequence[str]) -> float | None:
+        correct = sum(task_field_totals_by_case[case_id][0] for case_id in sampled)
+        total = sum(task_field_totals_by_case[case_id][1] for case_id in sampled)
+        return _safe_ratio(correct, total)
+
+    task_interval = _cluster_interval(
+        condition,
+        experiment_seed,
+        "non_padding_field_accuracy",
+        task_cluster_ids,
+        task_field_statistic,
+    )
+    metrics["non_padding_field_accuracy"] = _metric(
+        value=task_field_statistic(task_cluster_ids),
+        numerator=sum(value[0] for value in task_field_totals_by_case.values()),
+        denominator=sum(value[1] for value in task_field_totals_by_case.values()),
+        eligible_observations=started_attempts,
+        interval=task_interval,
+        low_confidence=_interval_low_confidence(task_interval),
     )
 
     case_field_accuracy = {
@@ -846,6 +880,29 @@ def _slo_values_satisfied(
         attempt["timing"][mapping[name]] / 1_000_000 <= limit
         for name, limit in slos.items()
     )
+
+
+def _non_padding_field_counts(
+    case: Mapping[str, Any], score: Mapping[str, Any]
+) -> tuple[int, int]:
+    """Exclude only the built-in generator's synthetic root padding leaf."""
+
+    paths = case.get("expected_field_paths", ())
+    generator = case.get("generator", {})
+    if generator.get("name") != "sor-built-in" or "/padding" not in paths:
+        return score["correct_fields"], score["total_fields"]
+
+    total = score["total_fields"] - 1
+    padding_incorrect = any(
+        error["path"] == "/padding"
+        for error in score.get("comparison_errors", ())
+    )
+    correct = score["correct_fields"] - int(
+        score["json_parsed"] and not padding_incorrect
+    )
+    if not 0 <= correct <= total:
+        raise AggregationError("saved field counts are inconsistent with padding score")
+    return correct, total
 
 
 def _validate_attempt_invariants(

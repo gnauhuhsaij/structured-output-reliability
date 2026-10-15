@@ -12,9 +12,37 @@ assistant response. It also aggregates condition-level correctness,
 consistency, latency, throughput, goodput, and confidence intervals offline.
 Every completed run also receives a Markdown report, and configured regression
 gates can fail a CI command without changing the run's completed status.
+Reports also include a supplementary non-padding field accuracy so synthetic
+length-filling errors can be distinguished from errors in task fields; strict
+exact correctness and quality goodput remain unchanged.
 
-An exploratory five-run example, including its full setup and interpretation
-limits, is in [`RESULTS.md`](RESULTS.md).
+## Reproducible experiments
+
+The YAML files below are reusable experiment configurations, not a claim that
+every supported matrix dimension has already been evaluated. Each live
+experiment changes selected dimensions and holds the others fixed so its
+comparisons remain interpretable. Automated tests in `tests/` instead check
+that the CLI and scoring code work; they are not model-service findings.
+
+| Experiment | Question and varied conditions | Status | Evidence |
+|---|---|---|---|
+| Five-run baseline | How do concurrency (1 vs. 4) and output mode (prompt-only vs. strict JSON Schema) relate to reliability and performance for the same 24 cases? | Completed: five sequential runs, 960 measured attempts | [Config](examples/openai-baseline.yaml) · [Results and limitations](RESULTS.md) |
+| Load-stress pilot | What happens to exact correctness and quality goodput at concurrency 1 vs. 8 in JSON Schema mode? Prompt-only is a secondary comparator; the other settings are fixed. | Completed: one run, 768 measured attempts | [Config](examples/openai-stress.yaml) · [Plan](STRESS_PLAN.md) · [Results and limitations](STRESS_RESULTS.md) |
+
+The baseline observed 960/960 exactly correct responses. Its concurrency-4
+conditions had higher request throughput than concurrency-1 conditions, but
+the small, sequential sample does not establish a general performance or
+reliability effect. The stress pilot observed 15 exact-value failures in
+synthetic padding, all in JSON Schema mode; it did not show a Schema violation
+or a request failure. It uses longer prompts and outputs but the same schema
+families and field/path counts, so it is primarily a serving-load test, not a
+test of harder extraction logic.
+
+When adding a completed experiment, publish its question, YAML, case-set
+hash, condition matrix, request counts, analysis method, aggregate results,
+and limitations. Label offline-validated or planned configurations separately
+until live responses have actually been collected. Keep API keys and raw
+request/response artifacts out of Git; `runs/` is ignored.
 
 ## Development setup
 
@@ -138,6 +166,19 @@ python scripts/compare_replications.py runs/replication-.../plan.json
 Its intervals use whole-run paired differences as observations. With five runs
 they are exploratory and should not be read as causal or multiple-testing-
 adjusted evidence.
+
+The completed load-stress pilot is specified in [`STRESS_PLAN.md`](STRESS_PLAN.md)
+and [`examples/openai-stress.yaml`](examples/openai-stress.yaml); its aggregate
+results are in [`STRESS_RESULTS.md`](STRESS_RESULTS.md). Validate all 96 cases
+offline before reproducing its 768 measured requests:
+
+```bash
+sor validate examples/openai-stress.yaml --check-cases
+```
+
+This validation sends no API requests and needs no API key. The stress plan
+pre-specified a joint correctness/goodput question and kept rate-limit and
+other request failures visible instead of silently excluding them.
 
 Character-length experiments work with the base installation. Exact token
 targeting uses the configured Hugging Face tokenizer and its chat template, so

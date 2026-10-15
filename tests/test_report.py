@@ -38,6 +38,7 @@ def _condition(
         "json_parse_rate": _metric(1, lower=0.8, upper=1),
         "schema_valid_rate": _metric(exact, lower=max(0, exact - 0.05), upper=1),
         "micro_field_accuracy": _metric(exact),
+        "non_padding_field_accuracy": _metric(exact),
         "macro_field_accuracy": _metric(exact),
         "exact_correct_rate": _metric(exact, lower=max(0, exact - 0.05), upper=1),
         "repeat_consistency_rate": _metric(None),
@@ -186,6 +187,7 @@ def test_markdown_report_shows_counts_unavailable_values_and_gate_status() -> No
     assert "# Structured Output Reliability Report: report-demo" in markdown
     assert "Regression gates: **NOT CONFIGURED**" in markdown
     assert "100.00% (1/1)" in markdown
+    assert "Non-padding fields" in markdown
     assert "| — |" in markdown
     assert "exact_correct=1" in markdown
 
